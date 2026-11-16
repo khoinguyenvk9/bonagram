@@ -124,7 +124,7 @@ Settings and the login session live in `~/.config/bonagram/`:
 Mouse:
 
 - Click a chat to open it, the search box to search, a topic tab to switch topic.
-- Click a message to select it: a photo or file opens at once, a normal message becomes the reply target.
+- Click a message to select it: a photo or file opens at once, any other message is highlighted so `E`/`D`/`R`/`F`/`O` work on it (`Enter` replies to it).
 - Click `[copy]` on a code block to copy the code.
 - Scroll over the chat list or the messages; drag the vertical divider to resize.
 - Because the app turns on mouse reporting, hold `Shift` while dragging to select text with the mouse.

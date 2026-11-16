@@ -122,7 +122,7 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 Chuột:
 
 - Click chat để mở, click ô tìm chat để tìm, click tab topic để chuyển topic.
-- Click một tin để chọn: click ảnh hoặc tệp thì mở ngay, click tin thường thì trả lời tin đó.
+- Click một tin để chọn: click ảnh hoặc tệp thì mở ngay, tin thường thì được tô sáng để dùng ngay `E`/`D`/`R`/`F`/`O` (`Enter` để trả lời tin đó).
 - Click `[copy]` trên khối code để chép code.
 - Cuộn chuột trên danh sách chat hoặc khung tin; kéo thanh dọc giữa hai khung để đổi độ rộng.
 - Vì app bật chế độ chuột, muốn bôi đen chữ bằng chuột hãy giữ `Shift` khi kéo.

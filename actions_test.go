@@ -516,3 +516,56 @@ func TestPinnedChatsStayOnTop(t *testing.T) {
 		t.Fatalf("after a new chat: %s", got)
 	}
 }
+
+func TestReactionShowsAfterSending(t *testing.T) {
+	a := newActionModel(t)
+	rc := tg.ReactionCount{Reaction: &tg.ReactionEmoji{Emoticon: "🔥"}, Count: 1}
+	rc.SetChosenOrder(0)
+	a.rec.reply = &tg.Updates{Updates: []tg.UpdateClass{&tg.UpdateMessageReactions{
+		Peer: &tg.PeerUser{UserID: 1}, MsgID: 6, Reactions: tg.MessageReactions{Results: []tg.ReactionCount{rc}},
+	}}}
+	a.selectMsg(t, 6)
+	a.key("r")
+	a.run(a.key("4"))
+	ls := a.m().lines()
+	if got := ls[len(ls)-1].reacts; len(got) != 1 || got[0] != (reaction{"🔥", 1, true}) {
+		t.Fatalf("the reaction we sent must show up at once: %+v", got)
+	}
+	if !strings.Contains(a.m().View(), "🔥") {
+		t.Fatal("the reaction is not drawn")
+	}
+}
+
+func TestClickSelectsMessageForActions(t *testing.T) {
+	a := newActionModel(t)
+	a.send(tea.KeyMsg{Type: tea.KeyEsc}) // leave browse mode
+	m := a.m()
+	if m.browse {
+		t.Fatal("setup: should not be browsing")
+	}
+	y := m.msgY() + m.lineAt[0] - m.vp.YOffset // the first message (own, id 5)
+	a.send(tea.MouseMsg{X: m.side + 5, Y: y, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	m = a.m()
+	if !m.browse || m.lines()[m.bsel].id != 5 || m.reply != nil {
+		t.Fatalf("a click should highlight the message without replying: browse=%v reply=%v", m.browse, m.reply)
+	}
+	a.key("e") // an action works right after the click, no Ctrl+B
+	if a.m().edit == nil || a.m().edit.id != 5 {
+		t.Fatal("e should edit the clicked message")
+	}
+}
+
+func TestClickInputLeavesBrowse(t *testing.T) {
+	a := newActionModel(t)
+	a.selectMsg(t, 5)
+	a.key("d") // a question is open too
+	m := a.m()
+	if !m.browse || m.delID == 0 {
+		t.Fatal("setup: should be browsing with a question open")
+	}
+	a.send(tea.MouseMsg{X: m.side + 8, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress}) // inside the input box
+	m = a.m()
+	if m.browse || !m.in.Focused() || m.delID != 0 || m.barText() != "" {
+		t.Fatalf("a click on the input should return to typing: browse=%v focused=%v", m.browse, m.in.Focused())
+	}
+}

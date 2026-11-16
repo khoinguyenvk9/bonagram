@@ -94,6 +94,8 @@ type (
 		kind, mk, text string
 		key            string // chat whose messages should be fetched again (a file or forward that landed there)
 		id             int
+		rs             []reaction // react: the message's reactions after the change
+		rsOK           bool
 		err            error
 	}
 	pinMsg struct{ mk, text string } // the pinned message of a chat/topic, "" when it has none
@@ -1203,6 +1205,8 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 				return m.enter(c)
 			}
 		}
+	case press && e.Y >= m.msgY()+m.vp.Height && e.Y < m.h-1 && m.curChat() != nil: // the input box and the row above it
+		m.focusInput()
 	case press:
 		return m.clickMessage(e.X, e.Y)
 	case e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelDown:
@@ -1211,7 +1215,21 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
-// clickMessage works like Enter on the message: a photo or file opens, anything else becomes the reply target.
+// focusInput is a click on the input box: leave browsing or searching and drop any question that was open.
+func (m *model) focusInput() {
+	m.delID, m.react, m.fwd = 0, nil, nil
+	m.prompt = ""
+	if m.searching {
+		m.stopSearch()
+	}
+	m.browse = false
+	m.in.Focus()
+	m.layout()
+	m.render()
+}
+
+// clickMessage highlights the message (browse mode, so e/d/r/f/o work on it straight away); a photo or file
+// opens. Enter then makes it the reply target.
 func (m *model) clickMessage(x, y int) tea.Cmd {
 	top := m.msgY()
 	if y < top || y >= top+m.vp.Height || len(m.lineAt) == 0 {
@@ -1232,10 +1250,21 @@ func (m *model) clickMessage(x, y int) tea.Cmd {
 		m.searching = false
 		m.search.Blur()
 	}
+	if m.delID != 0 || m.react != nil { // a question about another message is dropped
+		m.delID, m.react = 0, nil
+		m.setPrompt("")
+	}
 	m.bsel, m.browse = i, true
 	m.in.Blur()
 	m.render()
-	return m.browseKey("enter")
+	l := m.lines()[i]
+	if _, p := photoOf(l.msg); p {
+		return m.mediaCmd(l)
+	}
+	if _, d := docOf(l.msg); d {
+		return m.mediaCmd(l)
+	}
+	return nil
 }
 
 // --- media --------------------------------------------------------------------------

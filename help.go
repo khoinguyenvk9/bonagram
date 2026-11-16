@@ -79,7 +79,7 @@ var helpDoc = []helpSection{
 		{"Esc", "Thoát chế độ chọn tin"},
 	}},
 	{"Chuột", [][2]string{
-		{"Click", "Mở chat, chọn topic, chọn tin, nút [copy] của khối code"},
+		{"Click", "Mở chat, chọn topic, chọn tin (rồi e/d/r/f/o), [copy] của code"},
 		{"Cuộn", "Cuộn danh sách chat hoặc tin; lên đầu thì tải tin cũ"},
 		{"Kéo thanh dọc", "Đổi độ rộng danh sách chat (được nhớ)"},
 		{"Shift + kéo", "Bôi đen chữ để sao chép"},

@@ -173,7 +173,11 @@ func (m *model) answerPrompt(s string) tea.Cmd {
 			break
 		}
 	}
-	return m.act("react", m.mk(), l.id, e, func() error { return sendReaction(ctx, api, c.peer, l.id, e) })
+	mk, id := m.mk(), l.id
+	return func() tea.Msg {
+		rs, ok, err := sendReaction(ctx, api, c.peer, id, e)
+		return actMsg{kind: "react", mk: mk, id: id, text: e, key: c.key, rs: rs, rsOK: ok, err: err}
+	}
 }
 
 // act runs one request in the background and reports it as an actMsg.
@@ -276,10 +280,20 @@ func (m *model) onAct(a actMsg) tea.Cmd {
 		}
 		return m.toastCmd("Đã xoá tin")
 	case "react":
+		note := "Đã thả " + a.text
 		if a.text == "" {
-			return m.toastCmd("Đã bỏ reaction")
+			note = "Đã bỏ reaction"
 		}
-		return m.toastCmd("Đã thả " + a.text)
+		if !a.rsOK {
+			return tea.Batch(m.toastCmd(note), m.refresh(a.key)) // no update in the answer: read the message again
+		}
+		if i >= 0 {
+			ls[i].reacts = a.rs
+			if a.mk == m.mk() {
+				m.render()
+			}
+		}
+		return m.toastCmd(note)
 	case "forward":
 		return tea.Batch(m.toastCmd("Đã chuyển tiếp tới "+a.text), m.refresh(a.key))
 	case "file":

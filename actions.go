@@ -81,14 +81,31 @@ func deleteMsg(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int)
 	return err
 }
 
-// sendReaction puts emoji on a message; an empty emoji takes your reaction back.
-func sendReaction(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, emoji string) error {
+// sendReaction puts emoji on a message; an empty emoji takes your reaction back. The server does not announce
+// the result of our own reaction as an update, so the new reactions are read out of its answer (ok=false when
+// it carried none).
+func sendReaction(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, emoji string) (rs []reaction, ok bool, err error) {
 	req := &tg.MessagesSendReactionRequest{Peer: p, MsgID: id}
 	if emoji != "" {
 		req.Reaction = []tg.ReactionClass{&tg.ReactionEmoji{Emoticon: emoji}}
 	}
-	_, err := api.MessagesSendReaction(ctx, req)
-	return err
+	u, err := api.MessagesSendReaction(ctx, req)
+	if err != nil {
+		return nil, false, err
+	}
+	var ups []tg.UpdateClass
+	switch v := u.(type) {
+	case *tg.Updates:
+		ups = v.Updates
+	case *tg.UpdatesCombined:
+		ups = v.Updates
+	}
+	for _, x := range ups {
+		if r, is := x.(*tg.UpdateMessageReactions); is && r.MsgID == id {
+			return toReactions(r.Reactions), true, nil
+		}
+	}
+	return nil, false, nil
 }
 
 // forwardMsg forwards one message; into a forum it lands in the General topic.
