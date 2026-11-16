@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-`bonagram` is a terminal Telegram client in Go: [gotd/td](https://github.com/gotd/td) (MTProto) + Bubble Tea v1. User-facing docs (keys, config, requirements, limits) are in `README.md`; keep them in sync when behaviour changes. The UI text is Vietnamese. The look is a fixed dark theme (colour constants at the top of `view.go`).
+`bonagram` is a terminal Telegram client in Go: [gotd/td](https://github.com/gotd/td) (MTProto) + Bubble Tea v1. User-facing docs (keys, config, requirements, limits) are in `README.md` (English) and `README.vi.md` (Vietnamese); keep both in sync when behaviour changes. The UI text is Vietnamese. The look is a fixed dark theme (colour constants at the top of `view.go`).
 
 ## Commands
 
