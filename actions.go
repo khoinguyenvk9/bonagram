@@ -1,0 +1,213 @@
+package main
+
+// Things the user asks for one at a time: edit, delete, react, forward, upload a file, read the pinned
+// message, open a link. None of them runs in the background; each is one request (the pinned message is
+// one more request when a chat is opened).
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/binary"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf16"
+
+	"github.com/gotd/td/telegram/message"
+	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
+)
+
+// quickReactions are the emoji offered by the "r" key (1..7). Chats can restrict which ones they accept;
+// the server's refusal is shown as an error.
+var quickReactions = []string{"👍", "👎", "❤", "🔥", "🎉", "😁", "😢"}
+
+// errText is an error as the user should read it: Telegram's own code (REACTION_INVALID, MESSAGE_ID_INVALID...)
+// without the library's wrapping.
+func errText(err error) string {
+	if e, ok := tgerr.As(err); ok {
+		return e.Message
+	}
+	return err.Error()
+}
+
+func randID() (int64, error) {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0, err
+	}
+	return int64(binary.LittleEndian.Uint64(b[:])), nil
+}
+
+// sentID digs the id of the message just sent out of the server's answer.
+func sentID(u tg.UpdatesClass) int {
+	var ups []tg.UpdateClass
+	switch v := u.(type) {
+	case *tg.UpdateShortSentMessage:
+		return v.ID
+	case *tg.Updates:
+		ups = v.Updates
+	case *tg.UpdatesCombined:
+		ups = v.Updates
+	}
+	for _, x := range ups {
+		if m, ok := x.(*tg.UpdateMessageID); ok {
+			return m.ID
+		}
+	}
+	return 0
+}
+
+func channelOf(p tg.InputPeerClass) (*tg.InputChannel, bool) {
+	if ch, ok := p.(*tg.InputPeerChannel); ok {
+		return &tg.InputChannel{ChannelID: ch.ChannelID, AccessHash: ch.AccessHash}, true
+	}
+	return nil, false
+}
+
+func editText(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, text string) error {
+	_, err := api.MessagesEditMessage(ctx, &tg.MessagesEditMessageRequest{Peer: p, ID: id, Message: text})
+	return err
+}
+
+// deleteMsg deletes for everybody (revoke) where the chat allows it.
+func deleteMsg(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int) error {
+	if ch, ok := channelOf(p); ok {
+		_, err := api.ChannelsDeleteMessages(ctx, &tg.ChannelsDeleteMessagesRequest{Channel: ch, ID: []int{id}})
+		return err
+	}
+	_, err := api.MessagesDeleteMessages(ctx, &tg.MessagesDeleteMessagesRequest{ID: []int{id}, Revoke: true})
+	return err
+}
+
+// sendReaction puts emoji on a message; an empty emoji takes your reaction back.
+func sendReaction(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, emoji string) error {
+	req := &tg.MessagesSendReactionRequest{Peer: p, MsgID: id}
+	if emoji != "" {
+		req.Reaction = []tg.ReactionClass{&tg.ReactionEmoji{Emoticon: emoji}}
+	}
+	_, err := api.MessagesSendReaction(ctx, req)
+	return err
+}
+
+// forwardMsg forwards one message; into a forum it lands in the General topic.
+func forwardMsg(ctx context.Context, api *tg.Client, from, to tg.InputPeerClass, id int) error {
+	r, err := randID()
+	if err != nil {
+		return err
+	}
+	_, err = api.MessagesForwardMessages(ctx, &tg.MessagesForwardMessagesRequest{
+		FromPeer: from, ToPeer: to, ID: []int{id}, RandomID: []int64{r},
+	})
+	return err
+}
+
+var photoExt = map[string]bool{".jpg": true, ".jpeg": true, ".png": true}
+
+// sendFile uploads path (a photo if it is a small jpg/png, else a file). replyTo 0 = no reply; in a forum
+// topic the caller passes the topic root as replyTo, which is how a message is posted into a topic.
+func sendFile(ctx context.Context, api *tg.Client, p tg.InputPeerClass, path string, replyTo int) error {
+	st, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	if !st.Mode().IsRegular() {
+		return errors.New("không phải tệp thường")
+	}
+	if st.Size() == 0 {
+		return errors.New("tệp rỗng")
+	}
+	b := message.NewSender(api).To(p).CloneBuilder()
+	if replyTo != 0 {
+		b = b.Reply(replyTo)
+	}
+	up := b.Upload(message.FromPath(path))
+	if photoExt[strings.ToLower(filepath.Ext(path))] && st.Size() <= 10<<20 {
+		_, err = up.Photo(ctx)
+	} else {
+		_, err = up.File(ctx)
+	}
+	return err
+}
+
+// shellPath turns what a terminal pastes when a file is dropped on it (quoted, or with backslash-escaped
+// spaces) into a plain path.
+func shellPath(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 2 && (s[0] == '\'' || s[0] == '"') && s[len(s)-1] == s[0] {
+		s = s[1 : len(s)-1]
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' && i+1 < len(s) {
+			i++
+		}
+		b.WriteByte(s[i])
+	}
+	s = b.String()
+	if strings.HasPrefix(s, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			s = filepath.Join(home, s[2:])
+		}
+	}
+	return s
+}
+
+// loadPinned returns the newest pinned message of the chat (or forum topic tp > 1) as one line, "" if none.
+func loadPinned(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp int) (string, error) {
+	req := &tg.MessagesSearchRequest{Peer: p, Filter: &tg.InputMessagesFilterPinned{}, Limit: 1}
+	if tp > 1 {
+		req.TopMsgID = tp
+	}
+	res, err := api.MessagesSearch(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	mm, ok := res.(tg.ModifiedMessagesMessages)
+	if !ok {
+		return "", nil
+	}
+	for _, x := range mm.GetMessages() {
+		if m, ok := x.(*tg.Message); ok {
+			return flat(clean(m.Message) + " " + mediaTag(m.Media)), nil
+		}
+	}
+	return "", nil
+}
+
+// linksOf lists the http(s) links of a message, in order. Only those schemes are returned: anything else
+// (tg://, file:, javascript:) is not opened from a chat.
+func linksOf(m *tg.Message) []string {
+	if m == nil {
+		return nil
+	}
+	u := utf16.Encode([]rune(m.Message))
+	var out []string
+	for _, e := range m.Entities {
+		var s string
+		switch v := e.(type) {
+		case *tg.MessageEntityURL:
+			if v.Offset >= 0 && v.Length > 0 && v.Offset+v.Length <= len(u) {
+				s = string(utf16.Decode(u[v.Offset : v.Offset+v.Length]))
+			}
+		case *tg.MessageEntityTextURL:
+			s = v.URL
+		}
+		s = strings.TrimSpace(s)
+		if s == "" {
+			continue
+		}
+		if !strings.Contains(s, "://") {
+			// a scheme without // (javascript:, mailto:, tel:) is not a web address; host:port is
+			if i := strings.IndexByte(s, ':'); i > 0 && !strings.Contains(s[:i], "/") && (i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9') {
+				continue
+			}
+			s = "https://" + s
+		}
+		if l := strings.ToLower(s); strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") {
+			out = append(out, s)
+		}
+	}
+	return out
+}
