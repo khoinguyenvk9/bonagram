@@ -1,0 +1,44 @@
+name: Release
+
+# Push a tag like v0.2.0 to publish a release with binaries for macOS, Linux and Windows.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          set -eu
+          ver="${GITHUB_REF_NAME#v}"
+          mkdir dist
+          for t in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64 windows/arm64; do
+            os="${t%/*}"; arch="${t#*/}"
+            name="bonagram_${ver}_${os}_${arch}"
+            exe=bonagram; [ "$os" = windows ] && exe=bonagram.exe
+            mkdir -p "dist/$name"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" go build -trimpath -ldflags="-s -w -X main.version=$ver" -o "dist/$name/$exe" .
+            cp LICENSE THIRD_PARTY_NOTICES.txt README.md "dist/$name/"
+            if [ "$os" = windows ]; then (cd dist && zip -qr "$name.zip" "$name"); else tar -C dist -czf "dist/$name.tar.gz" "$name"; fi
+            rm -rf "dist/$name"
+          done
+          (cd dist && sha256sum * > checksums.txt)
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes \
+            --notes "Prebuilt binaries: download the archive for your system, unpack it and run \`bonagram\`. See the README for requirements (24-bit colour terminal, Telegram \`api_id\`/\`api_hash\`). Verify downloads with \`checksums.txt\`."

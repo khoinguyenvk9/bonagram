@@ -23,7 +23,7 @@ Viết bằng Go với [gotd/td](https://github.com/gotd/td) (kết nối Telegr
 - Ảnh: xem to toàn màn hình, tuỳ chọn thumbnail ngay trong khung chat. Video, file, gif mở bằng ứng dụng của hệ điều hành.
 - Khối code có tiêu đề ngôn ngữ và nút **copy**, code trong dòng có nền riêng.
 - Phản ứng (reaction) của người khác hiện dưới tin, phản ứng của bạn được tô nổi. Bạn cũng thả được reaction.
-- Sửa và xoá tin của mình, chuyển tiếp tin, mở link, gửi ảnh hoặc tệp (`/file`), tin ghim hiện ở đầu chat, chữ đang soạn dở được giữ riêng cho từng chat. Xem phần "Thao tác trên tin nhắn".
+- Sửa và xoá tin của mình, chuyển tiếp tin, mở link, gửi ảnh hoặc tệp (nút, `Ctrl+O` hoặc `/file`), tin ghim hiện ở đầu chat, chữ đang soạn dở được giữ riêng cho từng chat. Xem phần "Thao tác trên tin nhắn".
 - Tin hệ thống hiện chi tiết bằng chữ: ai đó tham gia hoặc rời nhóm, được thêm hoặc bị xoá, đổi tên nhóm, ghim tin, tạo topic, cuộc gọi (nhỡ hoặc thời lượng), tin tự xoá. Loại sự kiện hiếm gặp hiện `[sự kiện: Tên]`.
 - Bot stream câu trả lời bằng cách sửa dần một tin được hiển thị trực tiếp.
 - Chat lưu trữ (Archived) bị ẩn, giống Telegram. Chat ghim luôn nằm trên cùng.
@@ -46,13 +46,17 @@ Viết bằng Go với [gotd/td](https://github.com/gotd/td) (kết nối Telegr
 | ☐ | (Linux) công cụ clipboard và mở file | `command -v xclip wl-copy xdg-open` | Cài `xclip` (X11) hoặc `wl-clipboard` (Wayland), và `xdg-open`. Thiếu thì nút copy chỉ dùng OSC 52, không mở được tệp bằng ứng dụng ngoài |
 | ☐ | (tmux) bật các tuỳ chọn | Xem mục "Dùng trong tmux" | Thêm vào `~/.tmux.conf` |
 
-**Nền tảng:** macOS đã dùng thực tế (Apple Silicon). Linux build được cho amd64 và arm64 nhưng chưa chạy thử. Windows build được nhưng chưa chạy thử và không mở được tệp bằng ứng dụng ngoài.
+**Nền tảng:** macOS đã dùng thực tế (Apple Silicon). Linux (amd64, arm64) và Windows được build và chạy test trên GitHub Actions (máy Linux, Windows, macOS), nhưng chưa ai dùng app với tài khoản thật ở đó. Windows không mở được tệp bằng ứng dụng ngoài.
 
 **Terminal khuyến nghị:** Ghostty hoặc Kitty (ảnh thật, thông báo desktop, clipboard). Các terminal khác dùng được, với vài tính năng hạn chế (xem "Giới hạn").
 
 ## Cài đặt
 
-Trong thư mục mã nguồn:
+**File chạy dựng sẵn (không cần cài Go):** tải gói cho hệ điều hành của bạn ở [trang Releases](https://github.com/khoinguyenvk9/bonagram/releases) (`darwin` = macOS, `arm64` = Apple Silicon / ARM, `amd64` = Intel/AMD), giải nén rồi chạy `bonagram` (`bonagram.exe` trên Windows). Có thể đối chiếu bản tải về với `checksums.txt`. File chưa được ký số nên lần chạy đầu có thể bị chặn:
+- macOS: `xattr -d com.apple.quarantine ./bonagram` (hoặc chuột phải > Open trong Finder).
+- Windows: SmartScreen báo "unknown publisher": chọn More info > Run anyway.
+
+**Từ mã nguồn:** trong thư mục mã nguồn:
 
 ```bash
 go build -ldflags="-s -w" -o bonagram .
@@ -142,7 +146,7 @@ Bấm `Ctrl+B` (hoặc click một tin) để chọn tin, rồi:
 
 Các việc khác:
 
-- **Gửi ảnh hoặc tệp**: gõ `/file ` rồi đường dẫn, hoặc kéo tệp từ Finder thả vào terminal để terminal dán đường dẫn. Ví dụ `/file ~/Downloads/bao-cao.pdf`. Ảnh jpg/png dưới 10 MB gửi dạng ảnh, còn lại gửi dạng tệp. Đang trả lời một tin thì tệp gửi kèm làm trả lời tin đó.
+- **Gửi ảnh hoặc tệp**: bấm nút `[Tệp]` ở bên phải ô nhập (hoặc `Ctrl+O`) để mở hộp thoại chọn tệp của hệ điều hành, chọn một hoặc nhiều tệp; hoặc gõ `/file ` rồi các đường dẫn, hoặc kéo tệp từ Finder thả vào terminal để terminal dán đường dẫn. Ví dụ `/file ~/Downloads/bao-cao.pdf ~/Pictures/a.png`. Các tệp sẽ hiện ở dòng phía trên ô nhập: gõ chú thích (không bắt buộc) rồi `Enter` để gửi, hoặc `Esc` để bỏ. Ảnh jpg/png dưới 10 MB gửi dạng ảnh, còn lại gửi dạng tệp; nhiều ảnh (hoặc nhiều tệp) gửi thành một album tối đa 10, chú thích nằm ở tệp đầu. Đang trả lời một tin thì tệp gửi kèm làm trả lời tin đó. Trên Linux hộp thoại cần `zenity` hoặc `kdialog`; macOS và Windows có sẵn.
 - **Tin ghim**: dòng `▍ Ghim` ở đầu chat là tin được ghim mới nhất (với nhóm forum, của topic đang xem). Lấy bằng một yêu cầu khi mở chat.
 - **Nháp**: chữ đang gõ dở được giữ riêng cho từng chat và từng topic khi bạn chuyển đi chỗ khác, quay lại là còn. Nháp chỉ nằm trong bộ nhớ, thoát app là mất.
 
@@ -278,14 +282,11 @@ Trong tmux ảnh luôn hiện bằng khối màu (không dùng giao thức Kitty
 - Tin ghim chỉ cập nhật khi mở chat; ghim hay bỏ ghim lúc đang xem chỉ hiện sau khi mở lại chat.
 - Chat lưu trữ nhận tin mới (và được Telegram tự bỏ lưu trữ) chỉ hiện lại sau khi mở lại app.
 
-**Đang phát triển** (chưa có trong bản này)
-- Nút mở hộp thoại chọn file, gửi nhiều file một lúc (album) và thêm chú thích cho tệp gửi đi. Hiện chỉ gửi được từng tệp bằng `/file`, không có chú thích.
-
 **Tính năng chưa có**
-- Gửi: văn bản thuần, ảnh và tệp (`/file`, không kèm chú thích). Chưa có giọng nói, định dạng chữ, gửi nhiều tệp một lúc. Telegram giới hạn 4.096 ký tự mỗi tin, vượt quá sẽ báo lỗi gửi.
+- Gửi: văn bản thuần, ảnh và tệp (một hoặc nhiều, kèm chú thích). Chưa có giọng nói, định dạng chữ. Telegram giới hạn 4.096 ký tự mỗi tin, vượt quá sẽ báo lỗi gửi.
 - Reaction: chỉ 7 emoji cố định; nếu chat không cho dùng emoji đó (ví dụ Saved Messages) Telegram từ chối và app báo lỗi. Sửa, xoá chỉ áp dụng cho tin của bạn (trong Saved Messages là mọi tin). Xoá không hoàn tác được.
 - Chuyển tiếp: từng tin một, giữ tên người gửi gốc, vào topic General nếu đích là nhóm forum.
-- Tin bạn gửi bằng `/file` hoặc chuyển tiếp hiện sau vài giây, khi app tải lại các tin mới nhất của chat đó.
+- Tin bạn gửi dạng tệp hoặc chuyển tiếp hiện sau vài giây, khi app tải lại các tin mới nhất của chat đó.
 - Hiển thị: in đậm, nghiêng, liên kết bấm được bằng chuột (dùng phím `O`), tô màu cú pháp trong khối code, hình của emoji tuỳ chỉnh, xem ai đã thả phản ứng. Sticker, tin thoại, bình chọn, vị trí... hiện dưới dạng nhãn như `[file]`, `[media]`.
 - Chat bí mật (secret chat), cuộc gọi, story: không hỗ trợ.
 - Giao diện chỉ có tiếng Việt, một bảng màu tối cố định.

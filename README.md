@@ -25,7 +25,7 @@ Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connectio
 - Images: full-screen viewer, optional thumbnails inside the chat. Videos, files and GIFs open in the system's app.
 - Code blocks with a language header and a **copy** button; inline code has its own background.
 - Other people's reactions appear under the message, yours is highlighted. You can react too.
-- Edit and delete your own messages, forward, open links, send photos or files (`/file`), pinned message shown at the top of the chat, unsent text kept per chat. See "Working with messages".
+- Edit and delete your own messages, forward, open links, send photos or files (button, `Ctrl+O` or `/file`), pinned message shown at the top of the chat, unsent text kept per chat. See "Working with messages".
 - System messages are described in words: someone joined or left, was added or removed, group renamed, message pinned, topic created, calls (missed or duration), auto-delete timer. Rare event types show as `[sự kiện: Name]`.
 - Bots that stream an answer by editing one message again and again are shown live.
 - Archived chats are hidden, like in Telegram. Pinned chats stay on top.
@@ -48,13 +48,17 @@ Tick each item; if one fails, follow the right-hand column.
 | ☐ | (Linux) clipboard and file-opening tools | `command -v xclip wl-copy xdg-open` | Install `xclip` (X11) or `wl-clipboard` (Wayland), and `xdg-open`. Without them the copy button only uses OSC 52, and files cannot be opened in outside apps |
 | ☐ | (tmux) the right options | See "Using it in tmux" | Add them to `~/.tmux.conf` |
 
-**Platforms:** macOS has been used for real (Apple Silicon). Linux (amd64, arm64) builds but has not been run. Windows builds but has not been run, and cannot open files in outside apps.
+**Platforms:** macOS has been used for real (Apple Silicon). Linux (amd64, arm64) and Windows are built and their tests run on GitHub Actions (Linux, Windows and macOS runners), but nobody has used the app against a real account there yet. Windows cannot open files in outside apps.
 
 **Recommended terminal:** Ghostty or Kitty (real images, desktop notifications, clipboard). Other terminals work, with a few features limited (see "Limitations").
 
 ## Install
 
-From the source directory:
+**Prebuilt binary (no Go needed):** download the archive for your system from the [Releases page](https://github.com/khoinguyenvk9/bonagram/releases) (`darwin` = macOS, `arm64` = Apple Silicon / ARM, `amd64` = Intel/AMD), unpack it and run `bonagram` (`bonagram.exe` on Windows). Check the download against `checksums.txt` if you like. The binaries are not code-signed, so the first run may be blocked:
+- macOS: `xattr -d com.apple.quarantine ./bonagram` (or right-click > Open in Finder).
+- Windows: SmartScreen shows "unknown publisher": More info > Run anyway.
+
+**From source:** in the source directory:
 
 ```bash
 go build -ldflags="-s -w" -o bonagram .
@@ -144,7 +148,7 @@ Press `Ctrl+B` (or click a message) to select it, then:
 
 Other things:
 
-- **Sending a photo or file**: type `/file ` and a path, or drag a file from Finder into the terminal so the terminal pastes the path. Example: `/file ~/Downloads/report.pdf`. A jpg/png under 10 MB is sent as a photo, anything else as a file. While replying to a message, the file is sent as a reply to it.
+- **Sending photos or files**: click the `[Tệp]` button at the right of the input box (or press `Ctrl+O`) to open the system file dialog and pick one or several files; or type `/file ` followed by paths, or drag files from Finder into the terminal so the terminal pastes the paths. Example: `/file ~/Downloads/report.pdf ~/Pictures/a.png`. The files are then listed above the input: type an optional caption and press `Enter` to send, or `Esc` to drop them. A jpg/png under 10 MB is sent as a photo, anything else as a file; several photos (or several files) go as an album of up to 10, the caption on the first one. While replying to a message, the files are sent as a reply to it. The dialog needs `zenity` or `kdialog` on Linux; on macOS and Windows it is built in.
 - **Pinned message**: the `▍ Ghim` line at the top of a chat is the newest pinned message (in a forum group, the one for the open topic). It costs one request when the chat is opened.
 - **Drafts**: text you were typing is kept per chat and per topic when you go elsewhere, and is still there when you come back. Drafts live in memory only: quitting the app loses them.
 
@@ -280,14 +284,11 @@ Inside tmux, images are always drawn as blocks (the Kitty protocol is not used).
 - The pinned message is refreshed when a chat is opened; pinning or unpinning while you are viewing it only shows after you reopen the chat.
 - An archived chat that receives a new message (and which Telegram un-archives on its own) only shows again after you restart the app.
 
-**In development** (not in this version)
-- A button that opens a file-picker dialog, sending several files at once (album), and adding a caption to files you send. For now only single files can be sent with `/file`, with no caption.
-
 **Features not available**
-- Sending: plain text, photos and files (`/file`, without caption). No voice messages, text formatting, or several files at once. Telegram limits a message to 4,096 characters; longer ones give a send error.
+- Sending: plain text, photos and files (one or several, with a caption). No voice messages or text formatting. Telegram limits a message to 4,096 characters; longer ones give a send error.
 - Reactions: only 7 fixed emoji; if a chat does not allow that emoji (for example Saved Messages), Telegram refuses and the app shows an error. Edit and delete only work on your own messages (in Saved Messages, on all of them). Deleting cannot be undone.
 - Forwarding: one message at a time, keeps the original sender's name, goes to the General topic if the target is a forum group.
-- Messages you send with `/file` or forward appear after a few seconds, when the app reloads the newest messages of that chat.
+- Messages you send as files or forward appear after a few seconds, when the app reloads the newest messages of that chat.
 - Display: bold, italic, clickable links with the mouse (use the `O` key), syntax colouring in code blocks, custom emoji images, seeing who reacted. Stickers, voice messages, polls, locations... show as labels such as `[file]`, `[media]`.
 - Secret chats, calls and stories: not supported.
 - The interface is Vietnamese only, with a single fixed dark palette.
