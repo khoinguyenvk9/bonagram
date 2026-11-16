@@ -2,6 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -25,8 +29,13 @@ func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) er
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, in)
-	if box, ok := out.(*tg.UpdatesBox); ok {
+	switch box := out.(type) {
+	case *tg.UpdatesBox:
 		box.Updates = r.reply
+	case *tg.MessageMediaBox: // an uploaded photo or document, as the server stores it
+		box.MessageMedia = &tg.MessageMediaPhoto{Photo: &tg.Photo{ID: 1}}
+	case *tg.BoolBox:
+		box.Bool = &tg.BoolTrue{} // file parts are accepted
 	}
 	return nil
 }
@@ -311,10 +320,10 @@ func TestSendFileRejectsBadPaths(t *testing.T) {
 	rec := &recorder{}
 	api := tg.NewClient(rec)
 	dir := t.TempDir()
-	if err := sendFile(context.Background(), api, &tg.InputPeerUser{UserID: 1}, dir, 0); err == nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir}, "", 0); err == nil {
 		t.Error("a directory must be refused")
 	}
-	if err := sendFile(context.Background(), api, &tg.InputPeerUser{UserID: 1}, dir+"/missing", 0); err == nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir + "/missing"}, "", 0); err == nil {
 		t.Error("a missing file must be refused")
 	}
 	if rec.count() != 0 {
@@ -567,5 +576,131 @@ func TestClickInputLeavesBrowse(t *testing.T) {
 	m = a.m()
 	if m.browse || !m.in.Focused() || m.delID != 0 || m.barText() != "" {
 		t.Fatalf("a click on the input should return to typing: browse=%v focused=%v", m.browse, m.in.Focused())
+	}
+}
+
+func TestParsePaths(t *testing.T) {
+	dir := t.TempDir()
+	spaced := filepath.Join(dir, "my file.txt")
+	os.WriteFile(spaced, []byte("x"), 0o600)
+	if got := parsePaths(spaced); len(got) != 1 || got[0] != spaced {
+		t.Errorf("an existing path with spaces is one file: %q", got)
+	}
+	if runtime.GOOS == "windows" {
+		return // backslashes are folder separators there
+	}
+	for in, want := range map[string][]string{
+		`/a/b.png /a/c.png`:           {"/a/b.png", "/a/c.png"},
+		`'/a/it is.txt' "/a/x y.txt"`: {"/a/it is.txt", "/a/x y.txt"},
+		`/a/p\ q.png   /a/r.png`:      {"/a/p q.png", "/a/r.png"},
+		`  /only.txt  `:               {"/only.txt"},
+		``:                            nil,
+	} {
+		got := parsePaths(in)
+		if len(got) != len(want) {
+			t.Errorf("parsePaths(%q) = %q, want %q", in, got, want)
+			continue
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Errorf("parsePaths(%q) = %q, want %q", in, got, want)
+			}
+		}
+	}
+}
+
+func TestGroupsKeepKindsApart(t *testing.T) {
+	var us []upload
+	for i := 0; i < 12; i++ {
+		us = append(us, upload{photo: true})
+	}
+	us = append(us, upload{}, upload{}, upload{photo: true})
+	var sizes []int
+	for _, g := range groups(us) {
+		sizes = append(sizes, len(g))
+	}
+	if fmt.Sprint(sizes) != "[10 2 2 1]" {
+		t.Fatalf("groups of %v, want [10 2 2 1]", sizes)
+	}
+}
+
+func TestSendFilesWithCaption(t *testing.T) {
+	dir := t.TempDir()
+	var photos, docs []string
+	for _, n := range []string{"a.png", "b.jpg"} {
+		os.WriteFile(filepath.Join(dir, n), []byte("img"), 0o600)
+		photos = append(photos, filepath.Join(dir, n))
+	}
+	os.WriteFile(filepath.Join(dir, "c.pdf"), []byte("doc"), 0o600)
+	docs = append(docs, filepath.Join(dir, "c.pdf"))
+	rec := &recorder{}
+	api := tg.NewClient(rec)
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, docs, "xem giúp", 7); err != nil {
+		t.Fatal(err)
+	}
+	req, ok := rec.last(t).(*tg.MessagesSendMediaRequest)
+	if !ok || req.Message != "xem giúp" {
+		t.Fatalf("one file: want a media message with the caption, got %+v", rec.last(t))
+	}
+	if r, ok := req.ReplyTo.(*tg.InputReplyToMessage); !ok || r.ReplyToMsgID != 7 {
+		t.Fatalf("reply target lost: %+v", req.ReplyTo)
+	}
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, photos, "hai ảnh", 0); err != nil {
+		t.Fatal(err)
+	}
+	al, ok := rec.last(t).(*tg.MessagesSendMultiMediaRequest)
+	if !ok || len(al.MultiMedia) != 2 || al.MultiMedia[0].Message != "hai ảnh" || al.MultiMedia[1].Message != "" {
+		t.Fatalf("two photos should go as one album, caption on the first: %+v", rec.last(t))
+	}
+}
+
+func TestAttachFlow(t *testing.T) {
+	a := newActionModel(t)
+	dir := t.TempDir()
+	f1, f2 := filepath.Join(dir, "a b.png"), filepath.Join(dir, "c.txt")
+	os.WriteFile(f1, []byte("x"), 0o600)
+	os.WriteFile(f2, []byte("y"), 0o600)
+	a.send(tea.KeyMsg{Type: tea.KeyEsc}) // leave browse
+	m := a.m()
+	m.in.SetValue("/file '" + f1 + "' " + f2)
+	a.set(m)
+	a.send(tea.KeyMsg{Type: tea.KeyEnter})
+	m = a.m()
+	if len(m.attach) != 2 || m.in.Value() != "" || !strings.Contains(m.barText(), "Đính kèm (2)") {
+		t.Fatalf("both files should be staged: %q bar=%q", m.attach, m.barText())
+	}
+	if a.rec.count() != 0 {
+		t.Fatal("staging must not send anything")
+	}
+	if !strings.Contains(m.View(), "[Tệp]") {
+		t.Fatal("the file button is missing from the input box")
+	}
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	if a.m().attach != nil || a.m().barText() != "" {
+		t.Fatal("esc should drop the staged files")
+	}
+	m = a.m()
+	m.in.SetValue("/file " + dir + "/missing.png")
+	a.set(m)
+	a.send(tea.KeyMsg{Type: tea.KeyEnter})
+	if m = a.m(); m.attach != nil || m.err == "" {
+		t.Fatal("a missing file must be refused with an error")
+	}
+}
+
+func TestFileButtonClick(t *testing.T) {
+	a := newActionModel(t)
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	m := a.m()
+	x0 := m.side + 1 + 3 + max(m.vp.Width-6, 4) - m.btnW()
+	cmd := a.send(tea.MouseMsg{X: x0 + 2, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if cmd == nil || !a.m().picking { // the command (the dialog) is deliberately not run here
+		t.Fatal("a click on [Tệp] should open the picker")
+	}
+	a2 := newActionModel(t)
+	a2.send(tea.KeyMsg{Type: tea.KeyEsc})
+	a2.send(tea.MouseMsg{X: x0 - 3, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	if a2.m().picking {
+		t.Fatal("a click left of the button is just focusing the input")
 	}
 }

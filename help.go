@@ -65,7 +65,9 @@ var helpDoc = []helpSection{
 		{"Ctrl+U / Ctrl+W", "Xoá chữ trước con trỏ / xoá từng từ"},
 		{"End", "Đưa con trỏ về cuối dòng (rồi Ctrl+U để xoá hết)"},
 		{"Esc", "Huỷ trả lời hoặc sửa tin"},
-		{"/file đường-dẫn", "Gửi ảnh hoặc tệp (kéo tệp vào terminal để dán đường dẫn)"},
+		{"Ctrl+O / [Tệp]", "Mở hộp chọn tệp (chọn được nhiều tệp)"},
+		{"/file đường-dẫn…", "Đính kèm một hoặc nhiều tệp (kéo thả vào terminal)"},
+		{"Chú thích", "Gõ chú thích rồi Enter để gửi; Esc bỏ đính kèm"},
 	}},
 	{"Chọn tin (Ctrl+B, hoặc click một tin)", [][2]string{
 		{"↑ ↓", "Di chuyển; ↑ ở tin đầu tiên tải thêm tin cũ"},

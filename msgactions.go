@@ -3,7 +3,6 @@ package main
 // The model side of actions.go: keys of the message-browsing mode (^B) and what happens with the results.
 
 import (
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -214,27 +213,6 @@ func (m *model) forwardTo(vis []int) tea.Cmd {
 		a.key = to.key
 		return a
 	}
-}
-
-// fileCmd uploads the file named by "/file <path>" into the open chat (as a reply when one is chosen).
-func (m *model) fileCmd(c chat, path string) tea.Cmd {
-	rt := 0
-	switch {
-	case m.reply != nil:
-		rt = m.reply.id
-	case c.forum && c.topic > 1:
-		rt = c.topic // posting into a topic = replying to its root
-	}
-	m.in.SetValue("")
-	m.reply = nil
-	m.layout()
-	m.render()
-	name := filepath.Base(path)
-	ctx, api := m.ctx, m.api
-	work := func() tea.Msg {
-		return actMsg{kind: "file", text: name, key: c.key, err: sendFile(ctx, api, c.peer, path, rt)}
-	}
-	return tea.Batch(m.toastCmd("Đang gửi "+name+"…"), work)
 }
 
 // refresh fetches the newest messages of the open chat again when key is that chat: what we upload or

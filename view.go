@@ -343,6 +343,21 @@ func chatSubtitle(c *chat) string {
 	return strings.Join(p, " · ")
 }
 
+// btnW is the width of the [Tệp] button in the input box (0 when the box is too narrow for it).
+func (m *model) btnW() int {
+	if max(m.vp.Width-6, 4) < 30 {
+		return 0
+	}
+	return btnW
+}
+
+func (m model) attachButton() string {
+	if m.btnW() == 0 {
+		return ""
+	}
+	return paint(" "+fg(cAccent).Render("[Tệp]")+" ", btnW, cFg, cSurface)
+}
+
 func (m model) composeBox(w int) []string {
 	iw := max(w-6, 4) // inside the border, 2 columns of margin on each side
 	col := cBorder
@@ -353,7 +368,7 @@ func (m model) composeBox(w int) []string {
 	row := func(s string) string { return paint("  "+s, w, cFg, cSurface) }
 	return []string{
 		row(b.Render("╭" + strings.Repeat("─", iw) + "╮")),
-		row(b.Render("│") + paint(" "+m.in.View(), iw, cFg, cSurface) + b.Render("│")),
+		row(b.Render("│") + paint(" "+m.in.View(), iw-m.btnW(), cFg, cSurface) + m.attachButton() + b.Render("│")),
 		row(b.Render("╰" + strings.Repeat("─", iw) + "╯")),
 	}
 }

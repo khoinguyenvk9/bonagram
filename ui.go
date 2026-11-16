@@ -140,13 +140,15 @@ type model struct {
 	browse    bool
 	bsel      int // highlighted message while browsing
 	reply     *line
-	edit      *line  // own message being edited (the text is in the input)
-	stash     string // what was in the input before editing started
-	fwd       *line  // message waiting for a target chat (chosen in the search list)
-	react     *line  // message waiting for a reaction key
-	delID     int    // message waiting for the y that confirms deleting it
-	prompt    string // question shown above the input
-	lkFor     int    // message whose link was opened last, and which link
+	edit      *line    // own message being edited (the text is in the input)
+	stash     string   // what was in the input before editing started
+	fwd       *line    // message waiting for a target chat (chosen in the search list)
+	attach    []string // files staged by /file or the picker, waiting for a caption and Enter
+	picking   bool     // the file dialog is open
+	react     *line    // message waiting for a reaction key
+	delID     int      // message waiting for the y that confirms deleting it
+	prompt    string   // question shown above the input
+	lkFor     int      // message whose link was opened last, and which link
 	lkIdx     int
 	drafts    map[string]string // unsent text per chat/topic
 	pins      map[string]string // pinned message per chat/topic
@@ -413,6 +415,8 @@ func (m *model) barText() string {
 		return m.prompt
 	case m.edit != nil:
 		return "✎ Sửa tin: " + m.edit.text + "   (Enter lưu · Esc huỷ)"
+	case m.attach != nil:
+		return attachBar(m.attach)
 	case m.reply != nil:
 		return "↩ " + m.reply.from + ": " + m.reply.text
 	}
@@ -446,7 +450,7 @@ func (m *model) leave() {
 			m.drafts[k] = text
 		}
 	}
-	m.reply, m.edit, m.fwd, m.react, m.delID, m.prompt, m.browse = nil, nil, nil, nil, 0, "", false
+	m.reply, m.edit, m.fwd, m.react, m.delID, m.prompt, m.browse, m.attach = nil, nil, nil, nil, 0, "", false, nil
 	m.in.SetValue("")
 }
 
@@ -463,7 +467,7 @@ func (m *model) layout() {
 	}
 	m.vp.Width = max(m.w-m.side-1, 10)
 	m.vp.Height = max(m.h-rows, 1)
-	m.in.Width = max(m.vp.Width-9, 1)
+	m.in.Width = max(m.vp.Width-9-m.btnW(), 1)
 	m.search.Width = max(m.side-7, 1)
 }
 
@@ -645,6 +649,14 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.numberSent(msg)
 	case actMsg:
 		return m.onAct(msg)
+	case pickedMsg:
+		m.picking = false
+		switch {
+		case msg.err != nil:
+			m.err = "chọn tệp lỗi: " + msg.err.Error()
+		case len(msg.paths) > 0 && m.curChat() != nil:
+			m.stage(msg.paths)
+		}
 	case pinMsg:
 		if msg.text == "" {
 			delete(m.pins, msg.mk)
@@ -894,6 +906,8 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	switch s {
 	case "ctrl+b":
 		return m.startBrowse(len(m.lines()) - 1)
+	case "ctrl+o":
+		return m.pickCmd()
 	case "ctrl+r":
 		if ls := m.lines(); len(ls) > 0 {
 			m.setReply(&ls[len(ls)-1])
@@ -923,14 +937,21 @@ func (m *model) scroll(k tea.Msg, up bool) tea.Cmd {
 
 func (m *model) send() tea.Cmd {
 	text, c := strings.TrimSpace(m.in.Value()), m.curChat()
-	if text == "" || c == nil || m.api == nil {
+	if c == nil || m.api == nil {
+		return nil
+	}
+	if m.attach != nil {
+		return m.sendAttached(*c, text)
+	}
+	if text == "" {
 		return nil
 	}
 	if m.edit != nil {
 		return m.finishEdit(text)
 	}
 	if rest, ok := strings.CutPrefix(text, "/file "); ok {
-		return m.fileCmd(*c, shellPath(rest))
+		m.stage(parsePaths(rest))
+		return nil
 	}
 	m.in.SetValue("")
 	m.err, m.note = "", ""
@@ -955,6 +976,12 @@ func (m *model) send() tea.Cmd {
 
 // cancelCompose is Esc in the input: drops the edit or the reply.
 func (m *model) cancelCompose() {
+	if m.attach != nil {
+		m.attach = nil
+		m.layout()
+		m.render()
+		return
+	}
 	if m.edit != nil {
 		m.in.SetValue(m.stash)
 		m.in.CursorEnd()
@@ -1207,6 +1234,9 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 		}
 	case press && e.Y >= m.msgY()+m.vp.Height && e.Y < m.h-1 && m.curChat() != nil: // the input box and the row above it
 		m.focusInput()
+		if x0 := m.side + 1 + 3 + max(m.vp.Width-6, 4) - m.btnW(); m.btnW() > 0 && e.Y == m.h-3 && e.X >= x0 && e.X < x0+m.btnW() {
+			return m.pickCmd()
+		}
 	case press:
 		return m.clickMessage(e.X, e.Y)
 	case e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelDown:

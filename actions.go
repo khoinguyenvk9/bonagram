@@ -8,13 +8,12 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
-	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"unicode/utf16"
 
-	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 )
@@ -120,34 +119,6 @@ func forwardMsg(ctx context.Context, api *tg.Client, from, to tg.InputPeerClass,
 	return err
 }
 
-var photoExt = map[string]bool{".jpg": true, ".jpeg": true, ".png": true}
-
-// sendFile uploads path (a photo if it is a small jpg/png, else a file). replyTo 0 = no reply; in a forum
-// topic the caller passes the topic root as replyTo, which is how a message is posted into a topic.
-func sendFile(ctx context.Context, api *tg.Client, p tg.InputPeerClass, path string, replyTo int) error {
-	st, err := os.Stat(path)
-	if err != nil {
-		return err
-	}
-	if !st.Mode().IsRegular() {
-		return errors.New("không phải tệp thường")
-	}
-	if st.Size() == 0 {
-		return errors.New("tệp rỗng")
-	}
-	b := message.NewSender(api).To(p).CloneBuilder()
-	if replyTo != 0 {
-		b = b.Reply(replyTo)
-	}
-	up := b.Upload(message.FromPath(path))
-	if photoExt[strings.ToLower(filepath.Ext(path))] && st.Size() <= 10<<20 {
-		_, err = up.Photo(ctx)
-	} else {
-		_, err = up.File(ctx)
-	}
-	return err
-}
-
 // shellPath turns what a terminal pastes when a file is dropped on it (quoted, or with backslash-escaped
 // spaces) into a plain path.
 func shellPath(s string) string {
@@ -157,7 +128,7 @@ func shellPath(s string) string {
 	}
 	var b strings.Builder
 	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
+		if s[i] == '\\' && i+1 < len(s) && runtime.GOOS != "windows" {
 			i++
 		}
 		b.WriteByte(s[i])
