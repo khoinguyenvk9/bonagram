@@ -157,20 +157,22 @@ type model struct {
 	mq        string
 	mseq      int
 	mactive   bool
-	pend      []member        // picked mentions without a username: sent as entities
-	ms        *msearch        // searching the messages of this chat (Ctrl+F)
-	detached  map[string]bool // the view holds an old stretch found by a search, not the end of the chat
-	rows      []string        // the message view as drawn, row by row (for selecting text)
-	rowOut    []bool          // which rows belong to a message of ours
-	txt       selection       // text selected with the mouse
-	links     []linkSpan      // the links on screen, from the last render
-	hover     string          // the address of the link the mouse is over
-	attach    []string        // files staged by /file or the picker, waiting for a caption and Enter
-	picking   bool            // the file dialog is open
-	react     *line           // message waiting for a reaction key
-	delID     int             // message waiting for the y that confirms deleting it
-	prompt    string          // question shown above the input
-	lkFor     int             // message whose link was opened last, and which link
+	pend      []member                  // picked mentions without a username: sent as entities
+	ms        *msearch                  // searching the messages of this chat (Ctrl+F)
+	detached  map[string]bool           // the view holds an old stretch found by a search, not the end of the chat
+	rows      []string                  // the message view as drawn, row by row (for selecting text)
+	rowOut    []bool                    // which rows belong to a message of ours
+	txt       selection                 // text selected with the mouse
+	quotes    map[string]string         // quote lines already measured
+	bodies    map[*tg.Message]bodyCache // message bodies drawn by the last render
+	links     []linkSpan                // the links on screen, from the last render
+	hover     string                    // the address of the link the mouse is over
+	attach    []string                  // files staged by /file or the picker, waiting for a caption and Enter
+	picking   bool                      // the file dialog is open
+	react     *line                     // message waiting for a reaction key
+	delID     int                       // message waiting for the y that confirms deleting it
+	prompt    string                    // question shown above the input
+	lkFor     int                       // message whose link was opened last, and which link
 	lkIdx     int
 	drafts    map[string]string // unsent text per chat/topic
 	pins      map[string]string // pinned message per chat/topic

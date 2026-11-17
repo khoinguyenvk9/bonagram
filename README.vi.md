@@ -223,41 +223,51 @@ BONAGRAM_FPS=60
 
 ## Bộ nhớ, CPU và dung lượng
 
-Số đo thực tế trên macOS (Apple Silicon), tài khoản thật có 117 chat. Chạy trong tmux nên ảnh vẽ bằng khối màu.
+Đo với v0.2.1 trên macOS (Apple Silicon), tài khoản thật, chạy trong tmux (ảnh vẽ bằng khối màu), bật ảnh xem trước (`BONAGRAM_PREVIEWS=1`), trong Saved Messages có nhiều ảnh và video. Cột v0.1.0 là số đo trước đây (117 chat; không ghi lại lúc đó có bật ảnh xem trước không).
 
 **Bộ nhớ**
 
-| Tình huống | RSS | Bộ nhớ vật lý (`footprint`) |
-|---|---|---|
-| Vừa mở, danh sách chat đã tải | 26,5 MB | 15 MB |
-| Mở một chat (40 tin) | 26,8 MB | 15 MB |
-| Đã cuộn tới giới hạn 500 tin | 28,7 MB | 16 MB |
-| Dùng một lúc rồi để yên | khoảng 25 MB | — |
+| Tình huống | RSS v0.2.1 | Bộ nhớ vật lý (`footprint`) v0.2.1 | v0.1.0 (RSS / vật lý) |
+|---|---|---|---|
+| Vừa mở, danh sách chat đã tải | 24,9 MB | 12 MB | 26,5 / 15 MB |
+| Mở một chat (40 tin, có vẽ ảnh xem trước) | 60,1 MB | 18 MB | 26,8 / 15 MB |
+| Đã cuộn tới giới hạn 500 tin | 60,8 MB | 20 MB | 28,7 / 16 MB |
 
-RSS có tính cả thư viện dùng chung của hệ thống; cột bộ nhớ vật lý là phần hệ điều hành tính riêng cho app, ổn định hơn. Bộ nhớ gần như không tăng khi tải thêm tin vì app chỉ giữ dữ liệu tin, không tạo thành phần giao diện cho từng tin.
+RSS có tính cả thư viện dùng chung của hệ thống và phần bộ nhớ Go giữ lại sau khi giải mã ảnh (mức tăng khi mở chat là do tải và thu nhỏ ảnh xem trước; phần này không trả lại hệ thống ngay). Cột bộ nhớ vật lý là phần hệ điều hành tính riêng cho app, đáng tin hơn: 12 MB lúc mở, 20 MB khi có 500 tin và ảnh xem trước. Tắt ảnh xem trước thì số sẽ gần cột v0.1.0 (chưa đo lại: cài đặt này nằm trong file env của bạn và không bị sửa khi đo).
 
 **CPU** (phần trăm của một nhân)
 
-| Tình huống | CPU |
-|---|---|
-| Khởi động (kết nối và tải 117 chat) | khoảng 0,1 giây CPU |
-| Để yên | khoảng 0,7% (0,4% với `BONAGRAM_FPS=30`) |
-| Cuộn chuột liên tục (1.000 sự kiện trong 10 giây, mức cuộn rất nhanh) | khoảng 8% |
-| 15 tin nhắn đến dồn dập | khoảng 1,0% |
+| Tình huống | v0.2.1 | v0.1.0 |
+|---|---|---|
+| Khởi động (kết nối và tải danh sách chat) | khoảng 0,16 giây CPU (10 giây đầu) | khoảng 0,1 giây |
+| Để yên | khoảng 0,65% | khoảng 0,7% |
+| Cuộn chuột liên tục (1.000 lần cuộn trong 12 giây, đã tải 500 tin) | khoảng 9% | khoảng 8% (10 giây) |
+
+Thoát bằng Ctrl+Q không để lại tiến trình nào trong 20 lần thử, và trong 10 lần Ctrl+Q rồi đóng terminal ngay.
 
 App vẽ lại tối đa 60 khung hình mỗi giây. Hạ xuống bằng `BONAGRAM_FPS` nếu muốn tiết kiệm CPU hơn: 30 khung hình cho khoảng 0,4% lúc để yên, 20 khung hình khoảng 0,3%, đổi lại gõ chữ và cuộn có thể thấy chậm hơn một chút (độ trễ vẽ tối đa 33 ms ở 30 khung hình, 50 ms ở 20).
+
+**Vẽ màn hình** (benchmark trên dữ liệu giả, `bench_test.go`, Apple Silicon; chat 500 tin, tin nào cũng là trả lời, có link và định dạng)
+
+| Bước | v0.1.0 | v0.2.1 |
+|---|---|---|
+| Vẽ lại cả chat (khi có tin mới, bấm phím lúc chọn tin) | 2,1 ms | 2,3 ms |
+| Dựng một khung hình (chi phí khi cuộn và rê chuột) | 0,19 ms | 0,21 ms |
+| Bộ nhớ heap của Go giữ 500 tin | 1,8 MB | 2,7 MB |
+
+Từ v0.2.x app giữ lại phần đã vẽ của từng tin và dùng lại cho tới khi tin đổi; nếu không, phần việc thêm (định dạng, trích dẫn cho mọi tin trả lời, thẻ tệp) làm mỗi lần vẽ lại chậm gần gấp 3.
 
 **Dung lượng**
 
 | Thành phần | Dung lượng |
 |---|---|
-| File chạy `bonagram` (build với `-s -w`) | khoảng 17 MB |
+| File chạy `bonagram` (build với `-s -w`) | khoảng 18 MB |
 | `~/.config/bonagram/` | vài chục KB |
 | Cache ảnh và tệp đã tải (`~/Library/Caches/bonagram/` trên macOS, `~/.cache/bonagram/` trên Linux) | tuỳ số ảnh bạn xem, vài trăm KB đến vài MB mỗi ảnh |
 
 Cache không tự xoá: bạn xoá tay thư mục `bonagram/` đó bất cứ lúc nào, app tải lại khi cần.
 
-Ghi chú về số đo: mỗi tình huống đo một lần (các con số lệch vài phần trăm giữa các lần đo), chưa đo khi hiện ảnh bằng giao thức Kitty trên Ghostty, chưa đo với tài khoản có hàng nghìn chat. Dùng thực tế nên tính khoảng 25 đến 35 MB RSS.
+Ghi chú về số đo: mỗi tình huống đo một lần (các con số lệch vài phần trăm giữa các lần đo), chưa đo khi hiện ảnh bằng giao thức Kitty trên Ghostty, chưa đo với tài khoản có hàng nghìn chat. Dùng thực tế nên tính khoảng 25 MB RSS khi tắt ảnh xem trước và khoảng 60 MB khi bật (12 đến 20 MB bộ nhớ vật lý).
 
 ## Dùng trong tmux
 
@@ -334,6 +344,8 @@ Trong tmux ảnh luôn hiện bằng khối màu (không dùng Kitty, iTerm2 hay
 - App giữ chuột nên không bôi đen bằng terminal được; việc kéo chuột qua tin nhắn do app xử lý (chép qua các đường clipboard ở trên).
 
 ## Phát triển
+
+Các thay đổi giữa các phiên bản: [CHANGELOG.vi.md](CHANGELOG.vi.md).
 
 ```bash
 go vet ./... && go test -race ./...    # test không kết nối Telegram thật

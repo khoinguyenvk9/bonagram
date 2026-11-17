@@ -225,41 +225,51 @@ BONAGRAM_FPS=60
 
 ## Memory, CPU and disk
 
-Measured on macOS (Apple Silicon) with a real account of 117 chats, run inside tmux so images were drawn as blocks.
+Measured with v0.2.1 on macOS (Apple Silicon), real account, run inside tmux (images drawn as blocks), photo previews on (`BONAGRAM_PREVIEWS=1`), in Saved Messages, which holds many photos and videos. The v0.1.0 column is the earlier measurement (117 chats; whether photo previews were on was not written down).
 
 **Memory**
 
-| Situation | RSS | Physical memory (`footprint`) |
-|---|---|---|
-| Just started, chat list loaded | 26.5 MB | 15 MB |
-| One chat open (40 messages) | 26.8 MB | 15 MB |
-| Scrolled back to the 500-message cap | 28.7 MB | 16 MB |
-| After some use, then idle | about 25 MB | n/a |
+| Situation | RSS v0.2.1 | Physical (`footprint`) v0.2.1 | v0.1.0 (RSS / physical) |
+|---|---|---|---|
+| Just started, chat list loaded | 24.9 MB | 12 MB | 26.5 / 15 MB |
+| One chat open (40 messages, photo previews drawn) | 60.1 MB | 18 MB | 26.8 / 15 MB |
+| Scrolled back to the 500-message cap | 60.8 MB | 20 MB | 28.7 / 16 MB |
 
-RSS includes shared system libraries; the physical-memory column is what the OS attributes to the app alone and is steadier. Memory barely grows when more messages load because the app only keeps message data and builds no UI component per message.
+RSS includes shared system libraries and memory the Go runtime keeps after decoding images (the jump when the chat opens comes from downloading and scaling the photo previews; it is not given back to the system right away). The physical-memory column is what the OS attributes to the app and is the better figure: 12 MB at start, 20 MB with 500 messages and previews. Without photo previews, expect numbers close to the v0.1.0 column (not measured again: the setting comes from your env file, which was not changed for the test).
 
 **CPU** (percent of one core)
 
-| Situation | CPU |
-|---|---|
-| Startup (connect and load 117 chats) | about 0.1 s of CPU |
-| Idle | about 0.7% (0.4% with `BONAGRAM_FPS=30`) |
-| Continuous mouse scrolling (1,000 events in 10 s, very fast scrolling) | about 8% |
-| 15 messages arriving in a burst | about 1.0% |
+| Situation | v0.2.1 | v0.1.0 |
+|---|---|---|
+| Startup (connect and load the chat list) | about 0.16 s of CPU (first 10 s) | about 0.1 s |
+| Idle | about 0.65% | about 0.7% |
+| Continuous mouse scrolling (1,000 wheel events in 12 s, 500 messages loaded) | about 9% | about 8% (10 s) |
+
+Quitting with Ctrl+Q left no process behind in 20 tries, nor in 10 tries of Ctrl+Q followed at once by closing the terminal.
 
 The app redraws at most 60 frames per second. Lower it with `BONAGRAM_FPS` to save CPU: 30 fps gives about 0.4% idle, 20 fps about 0.3%, at the cost of typing and scrolling feeling a little slower (worst-case draw delay 33 ms at 30 fps, 50 ms at 20).
+
+**Drawing** (benchmark on fake data, `bench_test.go`, Apple Silicon; a chat of 500 messages, each a reply with a link and formatting)
+
+| Step | v0.1.0 | v0.2.1 |
+|---|---|---|
+| Redraw the whole chat (after a new message, a key in selection mode) | 2.1 ms | 2.3 ms |
+| Build one frame (what scrolling and mouse movement cost) | 0.19 ms | 0.21 ms |
+| Go heap holding the 500 messages | 1.8 MB | 2.7 MB |
+
+v0.2.x keeps the drawing of every message and reuses it until the message changes; without that, the extra work (formatting, quotes for every reply, cards) made a redraw about 3 times slower.
 
 **Disk**
 
 | Item | Size |
 |---|---|
-| The `bonagram` executable (built with `-s -w`) | about 17 MB |
+| The `bonagram` executable (built with `-s -w`) | about 18 MB |
 | `~/.config/bonagram/` | a few dozen KB |
 | Cache of downloaded photos and files (`~/Library/Caches/bonagram/` on macOS, `~/.cache/bonagram/` on Linux) | depends on how many you view: a few hundred KB to a few MB per photo |
 
 The cache is never cleaned automatically: delete that `bonagram/` folder whenever you like, the app downloads again when needed.
 
-Notes on the numbers: each situation was measured once (figures vary by a few percent between runs); images drawn with the Kitty protocol in Ghostty were not measured, nor were accounts with thousands of chats. For real use, plan on about 25 to 35 MB of RSS.
+Notes on the numbers: each situation was measured once (figures vary by a few percent between runs); images drawn with the Kitty protocol in Ghostty were not measured, nor were accounts with thousands of chats. For real use, plan on 25 MB of RSS without photo previews and about 60 MB with them (12 to 20 MB of physical memory).
 
 ## Using it in tmux
 
@@ -336,6 +346,8 @@ Inside tmux, images are always drawn as blocks (no Kitty, iTerm2 or Sixel).
 - The app owns the mouse, so the terminal's own text selection does not work; dragging over the messages is handled by the app (copied through the clipboard routes above).
 
 ## Development
+
+What changed between versions: [CHANGELOG.md](CHANGELOG.md).
 
 ```bash
 go vet ./... && go test -race ./...    # tests never connect to Telegram

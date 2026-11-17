@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/gotd/td/tg"
 )
 
 // Theme colours.
@@ -79,6 +80,9 @@ func followUp(l line, prev *line) bool {
 }
 
 func cut(s string, n int) string {
+	if rs := []rune(s); len(rs) > 4*n+8 { // only the start can be shown: don't measure the rest
+		s = string(rs[:4*n+8])
+	}
 	s = flat(s)
 	if ansi.StringWidth(s) <= n {
 		return s
@@ -115,6 +119,8 @@ func (m *model) render() {
 	bw := min(cw, max(cw*7/10, 24))
 	var out []string
 	var outRow []bool
+	cache := make(map[*tg.Message]bodyCache, len(ls)) // what this render drew, for the next one
+	defer func() { m.bodies = cache }()
 	m.lineAt = m.lineAt[:0]
 	m.hits = m.hits[:0]
 	for i, l := range ls {
@@ -127,7 +133,7 @@ func (m *model) render() {
 		switch {
 		case l.replyTo == 0:
 		case t != nil:
-			quote = "↪ " + quoteText(t.from, t.text)
+			quote = "↪ " + m.quoteOf(t.from, t.text)
 		case l.quote != "":
 			quote = "↪ " + l.quote
 		default:
@@ -156,7 +162,7 @@ func (m *model) render() {
 		if quote != "" {
 			block = append(block, fg(cMuted).Render(quote))
 		}
-		body, hs := m.body(l, bw, cw)
+		body, hs := m.cachedBody(l, bw, cw, cache)
 		for _, h := range hs {
 			pend = append(pend, hitSpec{len(block) + h.idx, h.w, h.text})
 		}
@@ -512,4 +518,42 @@ func reactionLine(rs []reaction, w int) string {
 		}
 	}
 	return ansi.Truncate(strings.Join(parts, "  "), w, "…")
+}
+
+// bodyCache is a message body as last drawn, with what it was drawn for.
+type bodyCache struct {
+	text, hover string
+	bw, cw      int
+	out         bool
+	rows        []string
+	hits        []hitSpec
+}
+
+// cachedBody reuses the drawing of a message when nothing it depends on changed: drawing every body again
+// (entities, wrapping, cards) is most of the cost of a render, and a render happens on every update.
+func (m *model) cachedBody(l line, bw, cw int, next map[*tg.Message]bodyCache) ([]string, []hitSpec) {
+	if l.msg == nil {
+		return m.body(l, bw, cw)
+	}
+	c, ok := m.bodies[l.msg]
+	if !ok || c.text != l.text || c.bw != bw || c.cw != cw || c.out != l.out || c.hover != m.hover {
+		rows, hits := m.body(l, bw, cw)
+		c = bodyCache{l.text, m.hover, bw, cw, l.out, rows, hits}
+	}
+	next[l.msg] = c
+	return c.rows, c.hits
+}
+
+// quoteOf is quoteText remembered: measuring the start of the replied-to text is costly and repeats every render.
+func (m *model) quoteOf(from, text string) string {
+	k := from + "\x00" + text
+	if q, ok := m.quotes[k]; ok {
+		return q
+	}
+	if m.quotes == nil || len(m.quotes) > 4000 {
+		m.quotes = map[string]string{}
+	}
+	q := quoteText(from, text)
+	m.quotes[k] = q
+	return q
 }
