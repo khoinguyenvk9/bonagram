@@ -310,6 +310,9 @@ func TestShellPath(t *testing.T) {
 		`"/tmp/x y.txt"`:     `/tmp/x y.txt`,
 		"  /tmp/plain.txt  ": `/tmp/plain.txt`,
 	} {
+		if runtime.GOOS == "windows" && strings.Contains(in, `\`) {
+			continue // there a backslash is a folder separator, not an escape
+		}
 		if got := shellPath(in); got != want {
 			t.Errorf("shellPath(%q) = %q, want %q", in, got, want)
 		}

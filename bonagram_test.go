@@ -288,15 +288,20 @@ func TestKittySequence(t *testing.T) {
 	f.Close()
 
 	r, w, _ := os.Pipe()
+	done := make(chan []byte)
+	go func() { // read while it is written: a Windows pipe holds only a few KB
+		raw, _ := io.ReadAll(r)
+		done <- raw
+	}()
 	old, oldKitty := os.Stdout, kitty
 	os.Stdout, kitty = w, true
 	pic, err := renderImage(p, 20, 10)
 	w.Close()
 	os.Stdout, kitty = old, oldKitty
+	raw := <-done
 	if err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := io.ReadAll(r)
 
 	chunks := regexp.MustCompile(`\x1b_G([^;]*);([^\x1b]*)\x1b\\`).FindAllStringSubmatch(string(raw), -1)
 	if len(chunks) < 2 {
