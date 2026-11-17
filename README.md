@@ -10,7 +10,11 @@ Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connectio
 
 ![bonagram screenshot](docs/screenshot.png)
 
-*Illustration: sample data (made-up names and messages), rendered from the app's own output. Real colours and fonts depend on your terminal.*
+*Illustration: sample data (made-up names and messages), rendered from the app's own output by `scripts/shots.sh`. It shows a reply quote, formatting, links (a hidden one with its address), a code block, a file card and a location card. Real colours and fonts depend on your terminal.*
+
+![Searching messages with Ctrl+F](docs/screenshot-search.png)
+
+*`Ctrl+F`: searching the messages of a chat (sample data).*
 
 ## Features
 

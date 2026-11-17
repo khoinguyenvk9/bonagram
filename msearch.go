@@ -227,7 +227,11 @@ func (m *model) renderResults() {
 	for i, l := range s.res {
 		text := flat(l.text)
 		if at := strings.Index(strings.ToLower(text), strings.ToLower(s.ran)); at > 20 {
-			text = "…" + string([]rune(text)[len([]rune(text[:at]))-20:])
+			text = string([]rune(text)[len([]rune(text[:at]))-20:])
+			if sp := strings.IndexByte(text, ' '); sp >= 0 && sp < 20 { // start at a word, not in the middle of one
+				text = text[sp+1:]
+			}
+			text = "…" + text
 		}
 		bar, head := " ", fg(cMuted).Render(l.at.Format("02/01 15:04"))+"  "+nameStyle(l.from).Render(l.from)+": "
 		row := ansi.Truncate(bar+" "+head+text, max(m.vp.Width-1, 1), "…")

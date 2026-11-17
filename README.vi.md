@@ -8,7 +8,11 @@ Viết bằng Go với [gotd/td](https://github.com/gotd/td) (kết nối Telegr
 
 ![Giao diện bonagram](docs/screenshot.png)
 
-*Ảnh minh hoạ: dữ liệu mẫu (tên và tin nhắn giả), dựng từ chính giao diện của app. Màu và font thật phụ thuộc terminal của bạn.*
+*Ảnh minh hoạ: dữ liệu mẫu (tên và tin nhắn giả), dựng từ chính giao diện của app bằng `scripts/shots.sh`. Ảnh có trích dẫn khi trả lời, chữ định dạng, link (cả link ẩn kèm địa chỉ), khối code, thẻ tệp và thẻ vị trí. Màu và font thật phụ thuộc terminal của bạn.*
+
+![Tìm tin nhắn bằng Ctrl+F](docs/screenshot-search.png)
+
+*`Ctrl+F`: tìm trong nội dung tin của một chat (dữ liệu mẫu).*
 
 ## Tính năng
 

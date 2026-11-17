@@ -30,6 +30,8 @@ Single `package main`; the pieces that must be read together:
 - **`media.go`**: downloads, image drawing (Kitty unicode placeholders, or half-blocks fallback; `BONAGRAM_IMAGES` forces one), and `lockedOut`/`termWrite`.
 - **`input.go`**: filter that repairs mouse reports Bubble Tea split in two (they would otherwise be typed into the input box).
 
+README screenshots: `scripts/shots.sh` (fake data in `screenshot_test.go` → HTML → headless Chrome → ImageMagick); re-run it when the look changes.
+
 ## Non-obvious things
 
 - **All terminal output goes through one mutex** (`lockedOut` is Bubble Tea's output; image/bell/OSC writes use `termWrite`). Each Bubble Tea frame is wrapped in autowrap-off (`?7l`…`?7h`) and followed by a move of the **real** cursor to the focused input, because IME composing text (Vietnamese Telex/VNI) is drawn at the real cursor. The built-in virtual cursor of the text inputs is disabled for that reason. `lockedOut` must keep `Read/Fd/Close`, or Bubble Tea stops recognising the terminal and the screen stays blank.
