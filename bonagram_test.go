@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -757,7 +758,7 @@ func TestSaveCredsKeepsOptions(t *testing.T) {
 	}
 	fresh := filepath.Join(t.TempDir(), "new")
 	saveCreds(fresh, 1, "h")
-	if st, _ := os.Stat(fresh); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(fresh); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows has no permission bits
 		t.Fatalf("new env file must be private: %v", st.Mode().Perm())
 	}
 }
