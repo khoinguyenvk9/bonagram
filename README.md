@@ -50,7 +50,7 @@ Tick each item; if one fails, follow the right-hand column.
 
 **Platforms:** macOS has been used for real (Apple Silicon). Linux (amd64, arm64) and Windows are built and their tests run on GitHub Actions (Linux, Windows and macOS runners), but nobody has used the app against a real account there yet. Windows cannot open files in outside apps.
 
-**Recommended terminal:** Ghostty or Kitty (real images, desktop notifications, clipboard). Other terminals work, with a few features limited (see "Limitations").
+**Recommended terminal:** Ghostty or Kitty (real images everywhere, desktop notifications, clipboard). Other terminals work, with a few features limited (see "Limitations").
 
 ## Install
 
@@ -111,11 +111,12 @@ Settings and the login session live in `~/.config/bonagram/`:
 | Key | What it does |
 |---|---|
 | `Ctrl+K` | Search chats (`↑` `↓` pick a result, `Enter` open, `Esc` cancel) |
+| `Ctrl+F` | Search the text of the messages in the open chat (or topic): type a word, `Enter` searches, `↑` `↓` pick, `Enter` opens the messages around it, `Esc` closes. Up to 50 results, newest first. While an old stretch is shown, new messages are not added to it and the bar says so; `Esc` goes back to the newest |
 | `Ctrl+N` / `Ctrl+P` | Next / previous chat |
 | `Ctrl+G` | Jump to a chat with unread messages |
 | `Ctrl+T` / `Ctrl+Y` | Next / previous topic (forum groups) |
 | `Ctrl+B` | Select a message in the message pane (`↑` `↓` move, `Esc` leave) |
-| `Enter` on a message with a photo or file | Open the photo full screen (`Esc` or `Q` close, `O` open in the system app) |
+| `Enter` on a message with a photo or file | A photo opens full screen (`Esc` or `Q` close, `O` open in the system app). A file is saved in your `Downloads` folder (an existing file of the same name and size is reused, a different one gets `name (1).ext`) and opened in the system app if it is a known harmless type (documents, pictures, audio, video); any other type is only shown in the file manager, never run. The bar at the bottom says what is downloading; an error stays on screen until you act. An old message whose file link expired is read again automatically |
 | `Enter` or `Ctrl+R` on a normal message | Reply to it (`Ctrl+R` with nothing selected: reply to the newest message) |
 | `C` (while selecting a message) | Copy the message's code block; press again for the next block. A message without code is copied whole |
 | `E` `D` `R` `F` `O` `M` (while selecting a message) | Edit, delete, react, forward, open link, jump to @mention. See the next section |
@@ -128,10 +129,27 @@ Settings and the login session live in `~/.config/bonagram/`:
 Mouse:
 
 - Click a chat to open it, the search box to search, a topic tab to switch topic.
-- Click a message to select it: a photo or file opens at once, any other message is highlighted so `E`/`D`/`R`/`F`/`O` work on it (`Enter` replies to it).
+- Click a message to select it: a photo opens at once; a file only gets selected (the bar tells its name and size, `Enter` downloads it); any other message is highlighted so `E`/`D`/`R`/`F`/`O` work on it (`Enter` replies to it).
+- Links are blue. Move the mouse over one and it is underlined; a plain click (without dragging) opens it in the browser. A click only selects the message when it does not land on a link. The app cannot see the `Cmd` key (terminals do not report it), so a plain click is enough.
 - Click `[copy]` on a code block to copy the code.
 - Scroll over the chat list or the messages; drag the vertical divider to resize.
-- Because the app turns on mouse reporting, hold `Shift` while dragging to select text with the mouse.
+- Drag over text in the messages to select it: when you let go the selected text is copied (it stays marked until you press a key or click). Dragging past the top or bottom edge scrolls. A long address that wraps over two lines is copied with a line break, so use `L` for links.
+
+## Formatting
+
+What you type is read for Telegram's usual marks, in the input box and when editing:
+
+| Type | Result |
+|---|---|
+| `**bold**` | **bold** |
+| `__italic__` | _italic_ |
+| `~~strike~~` | ~~strike~~ |
+| `\|\|spoiler\|\|` | spoiler |
+| `` `code` `` | inline code |
+| ```` ```go ```` newline code newline ```` ``` ```` | a code block (the language is optional) |
+| `[words](https://address)` | a link behind the words |
+
+A mark with no partner, or followed by a space, stays as typed; single `*` and `_` are not marks, so `snake_case` and `2*3` are safe. A backslash before a mark types it as it is (`\**`). Pressing `E` on a message turns its formatting back into marks so it survives an edit. Messages you receive are drawn with their bold, italic, underline, strike, code, links and mentions. Not done: marks in a file caption are sent as typed; underline and quotes cannot be typed (they are kept only if you do not edit that message).
 
 ## Working with messages
 
@@ -144,21 +162,36 @@ Press `Ctrl+B` (or click a message) to select it, then:
 | `R` | **React**: press `1`..`7` (👍 👎 ❤ 🔥 🎉 😁 😢). Press the same one again to take it back |
 | `F` | **Forward**: pick the target chat in the list on the left (type to search), `Enter` to send, `Esc` to cancel. In a forum group the message goes to the General topic |
 | `O` | **Open a link** from the message in your browser (http/https only). With several links, press `O` again for the next one |
+| `L` | **Copy the links** of the message (one per line), including the address hidden behind a word |
 | `M` | Jump up to the nearest @mention among the loaded messages |
 
 Other things:
 
 - **Sending photos or files**: click the `[Tệp]` button at the right of the input box (or press `Ctrl+O`) to open the system file dialog and pick one or several files; or type `/file ` followed by paths, or drag files from Finder into the terminal so the terminal pastes the paths. Example: `/file ~/Downloads/report.pdf ~/Pictures/a.png`. The files are then listed above the input: type an optional caption and press `Enter` to send, or `Esc` to drop them. A jpg/png under 10 MB is sent as a photo, anything else as a file; several photos (or several files) go as an album of up to 10, the caption on the first one. While replying to a message, the files are sent as a reply to it. The dialog needs `zenity` or `kdialog` on Linux; on macOS and Windows it is built in.
 - **Pinned message**: the `▍ Ghim` line at the top of a chat is the newest pinned message (in a forum group, the one for the open topic). It costs one request when the chat is opened.
+- **Mentioning people**: in a group, type `@` at the start of a word and the members appear in the row above the input (keep typing to filter by name or username). `↑` `↓` choose, `Tab` or `Enter` insert, `Esc` close. Members are asked for from Telegram only while you type an `@`, nothing is loaded in advance. People without a username are mentioned by name and still get notified. Some large groups hide their member list from non-admins; then the app says it cannot read the members.
 - **Drafts**: text you were typing is kept per chat and per topic when you go elsewhere, and is still there when you come back. Drafts live in memory only: quitting the app loses them.
 
 These actions only run when you press the key; each is one request to Telegram, and nothing runs in the background.
 
 ## Images and files
 
-Kitty and Ghostty show real images; other terminals (and tmux) use coloured half-blocks. If images do not display correctly in your terminal, set `BONAGRAM_IMAGES=blocks` (always use blocks) or `BONAGRAM_IMAGES=kitty` (force the Kitty protocol).
+Images, by terminal:
 
-Files other than images are only opened in the system app if they are a familiar type (images, video, audio, PDF, text, Office documents). Anything else is only saved to the cache folder and its path is shown, because opening an arbitrary file received in a chat could run code.
+| Terminal | In the message list | Full-screen viewer (`Enter` on a photo) |
+|---|---|---|
+| Kitty, Ghostty | real images (Kitty protocol) | real image |
+| iTerm2, WezTerm, mintty, Rio, VS Code | coloured blocks | real image (iTerm2 protocol) |
+| foot, Windows Terminal (1.22+), Konsole, mlterm, contour | coloured blocks | real image (Sixel) |
+| Terminal.app, Alacritty, GNOME Terminal, tmux, others | coloured blocks | coloured blocks |
+
+The terminal is guessed from environment variables; only Kitty and Ghostty were tried for real, the other rows follow each terminal's documentation. If a guess is wrong, set `BONAGRAM_IMAGES` to `kitty`, `iterm`, `sixel` or `blocks`. Static stickers are drawn in the message list (the newest 12 of the chat); animated ones stay a label.
+
+**Videos and GIFs:** `Enter` downloads the video and, when [mpv](https://mpv.io) is installed, plays it inside the terminal (Kitty graphics in Kitty/Ghostty, Sixel where Sixel works, coloured text cells elsewhere; `q` stops and brings the app back). Without mpv it opens in the system player. Install mpv with `brew install mpv`, `apt install mpv` or `winget install mpv`.
+
+**Locations:** a received location is a card with a "Open map" link (Google Maps; click it, or `O`/`L` on the message). Send your own with `/position 10.7769, 106.7009` (or `/vitri`); a Google Maps link with `@lat,long` or `q=lat,long` also works, so you can paste one. The terminal cannot know where you are, so you give the point.
+
+Files other than images are only opened in the system app if they are a familiar type (images, video, audio, PDF, text, Office documents). Files are saved in your Downloads folder; a file of any other type is only shown in the file manager, because opening an arbitrary file received in a chat could run code.
 
 ## Code blocks and copy
 
@@ -187,7 +220,7 @@ BONAGRAM_FPS=60
 | `BONAGRAM_PREVIEWS` | `0` (0 or 1) | `1` shows photo thumbnails inside the chat |
 | `BONAGRAM_PREVIEW_ROWS` | `8` (0 to 30) | Only with `BONAGRAM_PREVIEWS=1`: maximum thumbnail height in rows |
 | `BONAGRAM_PREVIEW_COUNT` | `8` (0 to 50) | Only with `BONAGRAM_PREVIEWS=1`: only the newest N photos in a chat get thumbnails |
-| `BONAGRAM_IMAGES` | auto | `kitty` or `blocks`: force how images are drawn |
+| `BONAGRAM_IMAGES` | auto | `kitty`, `iterm`, `sixel` or `blocks`: force how images are drawn |
 | `BONAGRAM_FPS` | `60` (10 to 120) | Maximum frames per second. Lower uses less CPU when idle but typing and scrolling feel less smooth |
 
 ## Memory, CPU and disk
@@ -240,7 +273,7 @@ set -g focus-events on                # notifications and read marks at the righ
 set -g mouse on
 ```
 
-Inside tmux, images are always drawn as blocks (the Kitty protocol is not used).
+Inside tmux, images are always drawn as blocks (no Kitty, iTerm2 or Sixel).
 
 ## Data and security
 
@@ -280,26 +313,27 @@ Inside tmux, images are always drawn as blocks (the Kitty protocol is not used).
 - At most 1,000 main-folder chats; archived chats are hidden.
 - Opening a chat loads the latest 40 messages; scrolling up loads more, up to `BONAGRAM_MAX_MESSAGES` (default 500, at most 5,000).
 - At most 100 topics per forum group.
-- Messages edited by others (including bots streaming an answer by editing one message) update live, redrawn at most 4 times a second. Messages deleted by others only disappear after you restart the app.
+- Messages edited by others (including bots streaming an answer by editing one message) update live, redrawn at most 4 times a second. Messages deleted by others stay on screen until you restart the app. This is on purpose: you can still read what was sent and deleted before you looked.
 - The pinned message is refreshed when a chat is opened; pinning or unpinning while you are viewing it only shows after you reopen the chat.
 - An archived chat that receives a new message (and which Telegram un-archives on its own) only shows again after you restart the app.
 
 **Features not available**
-- Sending: plain text, photos and files (one or several, with a caption). No voice messages or text formatting. Telegram limits a message to 4,096 characters; longer ones give a send error.
+- Sending: plain text, photos and files (one or several, with a caption). No voice messages. Text formatting is typed as marks (see "Formatting"). Telegram limits a message to 4,096 characters; longer ones give a send error.
 - Reactions: only 7 fixed emoji; if a chat does not allow that emoji (for example Saved Messages), Telegram refuses and the app shows an error. Edit and delete only work on your own messages (in Saved Messages, on all of them). Deleting cannot be undone.
 - Forwarding: one message at a time, keeps the original sender's name, goes to the General topic if the target is a forum group.
 - Messages you send as files or forward appear after a few seconds, when the app reloads the newest messages of that chat.
-- Display: bold, italic, clickable links with the mouse (use the `O` key), syntax colouring in code blocks, custom emoji images, seeing who reacted. Stickers, voice messages, polls, locations... show as labels such as `[file]`, `[media]`.
+- Display: bold, italic, clickable links with the mouse (use the `O` key), syntax colouring in code blocks, custom emoji images, seeing who reacted. A file is drawn as a small card: a coloured badge with its type (`PDF`, `ZIP`, `MP4`...), the name, and the size (plus the length for video and audio); in the chat list it is a one-line label (`[file] report.pdf · 2.3 MB`); stickers, polls, locations and contacts show as short labels. Link previews add no label.
 - Secret chats, calls and stories: not supported.
 - The interface is Vietnamese only, with a single fixed dark palette.
 - A chat with a new message jumps to the top of the unpinned chats; pinned chats always stay on top, in place. Pinning or unpinning a chat while the app is running only shows after you restart.
 
 **Terminal-dependent**
-- Real images only on Kitty and Ghostty; elsewhere coloured blocks.
+- Real images in the message list only on Kitty and Ghostty; the full-screen viewer also on iTerm2-protocol and Sixel terminals; elsewhere coloured blocks. See the table under "Images".
 - Desktop notifications and correct read marks need the terminal to report window focus. If it does not, the app assumes the window is always being watched.
+- **Links**: every link is also an OSC 8 hyperlink, so terminals that support it underline it while `Cmd` (macOS) or `Ctrl` (Linux, Windows) is held over it and open it on `Cmd`/`Ctrl`+click, like a link in any other program. Terminals that support OSC 8 according to their documentation (not tried on every one here): iTerm2, Ghostty, Kitty, WezTerm, Windows Terminal, GNOME Terminal and other VTE ones, Konsole, Alacritty. **No support:** Terminal.app (macOS), xterm, the Linux text console; inside tmux you need 3.4 or newer with `set -as terminal-features ',*:hyperlinks'`. Where it is missing, the blue colour, the hover underline and the plain click of the app still work. Not checked: whether a terminal that opens the link itself on `Cmd`+click also lets the app see that click, which would open the link twice. Tell us which terminals behave differently and add them to this list.
 - The copy button uses OSC 52 (Ghostty, Kitty, WezTerm, iTerm2) and the `pbcopy`, `wl-copy`, `xclip` tools; Terminal.app only works through `pbcopy`.
 - Half-typed text from a Vietnamese input method only appears in the right place if the terminal draws it at the cursor position. Not checked on every terminal.
-- Because the app turns on mouse reporting, hold `Shift` while dragging to select text.
+- The app owns the mouse, so the terminal's own text selection does not work; dragging over the messages is handled by the app (copied through the clipboard routes above).
 
 ## Development
 

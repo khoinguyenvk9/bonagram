@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gotd/td/tg"
+	"github.com/gotd/td/tgerr"
 )
 
 const (
@@ -82,6 +84,11 @@ type (
 	}
 	viewMsg  struct{ v viewer }
 	toastMsg struct{ text string }
+	playMsg  struct{ path string } // a downloaded video, to play in the terminal
+	doneMsg  struct {              // the end of a download: a message to show, an error that stays on screen
+		text string
+		bad  bool
+	}
 	toastOff struct{ seq int }
 	// sentMsg: the server accepted (or refused) text typed into chat view mk, and numbered it id.
 	sentMsg struct {
@@ -140,15 +147,30 @@ type model struct {
 	browse    bool
 	bsel      int // highlighted message while browsing
 	reply     *line
-	edit      *line    // own message being edited (the text is in the input)
-	stash     string   // what was in the input before editing started
-	fwd       *line    // message waiting for a target chat (chosen in the search list)
-	attach    []string // files staged by /file or the picker, waiting for a caption and Enter
-	picking   bool     // the file dialog is open
-	react     *line    // message waiting for a reaction key
-	delID     int      // message waiting for the y that confirms deleting it
-	prompt    string   // question shown above the input
-	lkFor     int      // message whose link was opened last, and which link
+	edit      *line               // own message being edited (the text is in the input)
+	stash     string              // what was in the input before editing started
+	fwd       *line               // message waiting for a target chat (chosen in the search list)
+	members   map[string][]member // members of basic groups, loaded at most once per chat
+	mc        []member            // @mention suggestions shown in the bar
+	msel      int
+	mstart    int // rune index of the "@" being completed
+	mq        string
+	mseq      int
+	mactive   bool
+	pend      []member        // picked mentions without a username: sent as entities
+	ms        *msearch        // searching the messages of this chat (Ctrl+F)
+	detached  map[string]bool // the view holds an old stretch found by a search, not the end of the chat
+	rows      []string        // the message view as drawn, row by row (for selecting text)
+	rowOut    []bool          // which rows belong to a message of ours
+	txt       selection       // text selected with the mouse
+	links     []linkSpan      // the links on screen, from the last render
+	hover     string          // the address of the link the mouse is over
+	attach    []string        // files staged by /file or the picker, waiting for a caption and Enter
+	picking   bool            // the file dialog is open
+	react     *line           // message waiting for a reaction key
+	delID     int             // message waiting for the y that confirms deleting it
+	prompt    string          // question shown above the input
+	lkFor     int             // message whose link was opened last, and which link
 	lkIdx     int
 	drafts    map[string]string // unsent text per chat/topic
 	pins      map[string]string // pinned message per chat/topic
@@ -185,7 +207,7 @@ func newModel(ctx context.Context, api *tg.Client, events <-chan tea.Msg, cfg co
 	s.Focus() // start in the search box
 	return model{
 		ctx: ctx, api: api, events: events, cfg: cfg, side: side, focused: true, searching: true,
-		msgs: map[string][]line{}, more: map[string]bool{}, told: map[string]bool{}, thumbs: map[int]*thumb{},
+		msgs: map[string][]line{}, more: map[string]bool{}, detached: map[string]bool{}, told: map[string]bool{}, thumbs: map[int]*thumb{},
 		archived: map[string]bool{}, drafts: map[string]string{}, pins: map[string]string{}, vp: viewport.New(0, 0), in: in, search: s,
 	}
 }
@@ -249,13 +271,13 @@ func (m model) readCmd(c chat, upto int) tea.Cmd {
 	}
 }
 
-func (m model) sendCmd(c chat, mk, text string, replyTo int) tea.Cmd {
+func (m model) sendCmd(c chat, mk, text string, replyTo int, ents []tg.MessageEntityClass) tea.Cmd {
 	ctx, api, tp := m.ctx, m.api, 0
 	if c.forum {
 		tp = c.topic
 	}
 	return func() tea.Msg {
-		id, err := sendText(ctx, api, c.peer, text, replyTo, tp)
+		id, err := sendText(ctx, api, c.peer, text, replyTo, tp, ents)
 		return sentMsg{mk, text, id, err}
 	}
 }
@@ -413,12 +435,18 @@ func (m *model) barText() string {
 	switch {
 	case m.prompt != "":
 		return m.prompt
+	case len(m.mc) > 0:
+		return mentionBar(m.mc, m.msel)
+	case m.ms != nil:
+		return m.msBar()
 	case m.edit != nil:
 		return "✎ Sửa tin: " + m.edit.text + "   (Enter lưu · Esc huỷ)"
 	case m.attach != nil:
 		return attachBar(m.attach)
 	case m.reply != nil:
 		return "↩ " + m.reply.from + ": " + m.reply.text
+	case m.detached[m.mk()]:
+		return "↺ Đang xem tin cũ   (Esc: về tin mới nhất)"
 	}
 	return ""
 }
@@ -451,6 +479,11 @@ func (m *model) leave() {
 		}
 	}
 	m.reply, m.edit, m.fwd, m.react, m.delID, m.prompt, m.browse, m.attach = nil, nil, nil, nil, 0, "", false, nil
+	m.mactive, m.mc, m.pend, m.ms = false, nil, nil, nil
+	if mk := m.mk(); m.detached[mk] { // an old stretch is not kept: the chat opens at its end next time
+		delete(m.detached, mk)
+		delete(m.msgs, mk)
+	}
 	m.in.SetValue("")
 }
 
@@ -521,6 +554,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
+		drawnID.Store(0) // a resize repaints everything: a painted picture must be painted again
 		m.clampSide()
 		m.layout()
 		m.render()
@@ -584,6 +618,13 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			return m.enter(c)
 		}
 
+	case searchMsg:
+		m.onSearchResult(msg)
+		return nil
+
+	case aroundMsg:
+		return m.onAround(msg)
+
 	case histMsg:
 		if msg.err != nil {
 			m.err = "tải tin nhắn lỗi: " + msg.err.Error()
@@ -637,6 +678,23 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.viewer = &v
 	case toastMsg:
 		return m.toastCmd(msg.text)
+	case playMsg:
+		m.note = ""
+		return tea.ExecProcess(exec.Command(mpvPath(), mpvArgs(msg.path)...), func(err error) tea.Msg {
+			if err != nil {
+				return doneMsg{"phát video lỗi: " + err.Error(), true}
+			}
+			return doneMsg{"", false}
+		})
+	case doneMsg:
+		m.note = ""
+		switch {
+		case msg.bad:
+			m.err = msg.text
+		case msg.text != "":
+			return m.toastCmd(msg.text)
+		}
+		return nil
 	case toastOff:
 		if msg.seq == m.toastSeq {
 			m.toast = ""
@@ -649,6 +707,10 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.numberSent(msg)
 	case actMsg:
 		return m.onAct(msg)
+	case mentionTick:
+		return m.onMentionTick(msg)
+	case mentionMsg:
+		return m.onMention(msg)
 	case pickedMsg:
 		m.picking = false
 		switch {
@@ -798,9 +860,13 @@ func (m *model) onNew(ev newMsg) tea.Cmd {
 	default: // unknown chat and no access hash: refetch the list instead
 		return tea.Batch(append(cmds, m.loadChatsCmd())...)
 	}
-	l := ev.line
-	if l.from == "?" { // short updates carry no sender: in a private chat it is the chat itself
-		l.from = c.title
+	l, reread := ev.line, false
+	if l.from == "?" { // the update did not carry the sender
+		if c.key[0] == 'u' { // in a private chat it is the chat itself
+			l.from = c.title
+		} else if l.from = m.nameOf(l.sender); l.from == "" { // in a group: a name seen before, else read the chat again
+			l.from, reread = "Thành viên", true
+		}
 	}
 	body := flat(l.text)
 	switch {
@@ -825,7 +891,7 @@ func (m *model) onNew(ev newMsg) tea.Cmd {
 		}
 	}
 	mk := mkFor(&c, l.topic)
-	if _, ok := m.msgs[mk]; ok {
+	if _, ok := m.msgs[mk]; ok && !m.detached[mk] {
 		m.msgs[mk] = addLine(m.msgs[mk], l)
 	}
 	inView := c.key == m.cur && (!hasTopics(&c) || c.topic == l.topic)
@@ -852,6 +918,9 @@ func (m *model) onNew(ev newMsg) tea.Cmd {
 	}
 	m.chats = placed(m.chats, c, i)
 	m.fixTop()
+	if reread {
+		cmds = append(cmds, m.refresh(c.key)) // the history carries the sender's name
+	}
 	if inView {
 		m.render()
 		cmds = append(cmds, m.thumbCmds())
@@ -873,6 +942,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	if s == "ctrl+q" || s == "ctrl+c" {
 		return tea.Quit
 	}
+	m.clearSel()
 	if m.help {
 		return m.helpKey(s)
 	}
@@ -892,16 +962,26 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.step(-1)
 	case "ctrl+g":
 		return m.nextUnread()
+	case "ctrl+f":
+		if m.ms == nil && !m.help {
+			m.startMsgSearch()
+		}
+		return nil
 	case "ctrl+t":
 		return m.topicStep(1)
 	case "ctrl+y":
 		return m.topicStep(-1)
 	}
 	switch {
+	case m.ms != nil:
+		return m.msKey(k)
 	case m.searching:
 		return m.searchKey(k)
 	case m.browse:
 		return m.browseKey(s)
+	}
+	if len(m.mc) > 0 && m.mentionKey(s) {
+		return nil
 	}
 	switch s {
 	case "ctrl+b":
@@ -914,8 +994,12 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		}
 		return nil
 	case "esc":
+		busy := m.attach != nil || m.edit != nil || m.reply != nil
 		m.cancelCompose()
-		return nil
+		if busy {
+			return nil
+		}
+		return m.backToLatest()
 	case "pgup", "pgdown":
 		return m.scroll(k, s == "pgup")
 	case "enter":
@@ -923,7 +1007,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	}
 	var c tea.Cmd
 	m.in, c = m.in.Update(k)
-	return c
+	return tea.Batch(c, m.mentionCheck())
 }
 
 // scroll moves the message view; reaching the top while scrolling up loads older messages.
@@ -953,6 +1037,11 @@ func (m *model) send() tea.Cmd {
 		m.stage(parsePaths(rest))
 		return nil
 	}
+	for _, cmd := range []string{"/position", "/vitri"} {
+		if rest, ok := strings.CutPrefix(text, cmd); ok && (rest == "" || rest[0] == ' ') {
+			return m.positionCmd(*c, rest)
+		}
+	}
 	m.in.SetValue("")
 	m.err, m.note = "", ""
 	rt, tp := 0, 1
@@ -963,15 +1052,21 @@ func (m *model) send() tea.Cmd {
 		tp = c.topic
 	}
 	mk, now := m.mk(), time.Now()
-	m.msgs[mk] = addLine(m.msgs[mk], line{from: "Bạn", text: text, out: true, at: now, replyTo: rt, topic: tp})
-	c.last, c.date = "Bạn: "+flat(text), int(now.Unix())
+	plain, fmts := parseMarkdown(text) // **bold** and the like become entities
+	local := line{from: "Bạn", text: plain, out: true, at: now, replyTo: rt, topic: tp}
+	if len(fmts) > 0 { // drawn at once as it will look; the server's copy replaces it
+		local.msg, local.segs = &tg.Message{Message: plain, Entities: fmts, Out: true}, segments(plain, fmts)
+	}
+	m.msgs[mk] = addLine(m.msgs[mk], local)
+	c.last, c.date = "Bạn: "+flat(plain), int(now.Unix())
 	cp := *c
 	m.bump(cp.key)
 	m.reply = nil
 	m.layout()
 	m.render()
 	m.vp.GotoBottom()
-	return m.sendCmd(cp, mk, text, rt)
+	m.mactive, m.mc = false, nil
+	return m.sendCmd(cp, mk, plain, rt, append(fmts, m.mentionEnts(plain)...))
 }
 
 // cancelCompose is Esc in the input: drops the edit or the reply.
@@ -1168,7 +1263,12 @@ func (m *model) viewerKey(s string) tea.Cmd {
 	switch s {
 	case "esc", "q":
 		dropImage(m.viewer.pic.id)
+		raw := m.viewer.pic.raw != ""
 		m.viewer = nil
+		if raw { // pixels painted by the terminal are only gone once every cell is drawn again
+			drawnID.Store(0)
+			return tea.ClearScreen
+		}
 	case "o":
 		if err := openExternal(m.viewer.path); err != nil {
 			m.err = "không mở được: " + err.Error()
@@ -1192,6 +1292,10 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 	if m.viewer != nil {
 		return nil
 	}
+	if e.Action == tea.MouseActionMotion && e.Button == tea.MouseButtonNone && !m.drag && !m.txt.on {
+		m.hoverAt(e)
+		return nil
+	}
 	press := e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonLeft
 	switch {
 	case press && e.X == m.side: // the divider
@@ -1204,6 +1308,10 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 	case m.drag && e.Action == tea.MouseActionRelease:
 		m.drag = false
 		saveSide(m.side)
+	case m.txt.on && e.Action == tea.MouseActionMotion:
+		m.dragSel(e)
+	case m.txt.on && e.Action == tea.MouseActionRelease:
+		return m.endSel(e)
 	case e.X < m.side && (e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelDown):
 		step := 1
 		if e.Button == tea.MouseButtonWheelUp {
@@ -1238,6 +1346,7 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 			return m.pickCmd()
 		}
 	case press:
+		m.beginSel(e)
 		return m.clickMessage(e.X, e.Y)
 	case e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelDown:
 		return m.scroll(e, e.Button == tea.MouseButtonWheelUp)
@@ -1291,8 +1400,8 @@ func (m *model) clickMessage(x, y int) tea.Cmd {
 	if _, p := photoOf(l.msg); p {
 		return m.mediaCmd(l)
 	}
-	if _, d := docOf(l.msg); d {
-		return m.mediaCmd(l)
+	if d, ok := docOf(l.msg); ok { // a file can be big: Enter downloads it
+		return m.toastCmd("Enter để tải " + docName(d) + " (" + humanSize(d.Size) + ")")
 	}
 	return nil
 }
@@ -1307,49 +1416,80 @@ var openable = map[string]bool{
 	".doc": true, ".docx": true, ".xls": true, ".xlsx": true, ".ppt": true, ".pptx": true,
 }
 
-// mediaCmd downloads a photo or file: images open in the viewer, other known types in the system app.
-// Anything else is only saved, because opening an arbitrary file from a chat could run it.
+// mediaCmd downloads a photo or file: images open in the viewer; a file is saved in the Downloads folder and
+// opened in the system app when its type is a known harmless one, otherwise shown in the file manager (opening an
+// arbitrary file from a chat could run it). The answer is a doneMsg, so an error stays on screen.
 func (m *model) mediaCmd(l line) tea.Cmd {
 	ctx, api, w, h := m.ctx, m.api, m.w, m.h
 	title := l.from + "  " + l.at.Format("15:04")
+	var p tg.InputPeerClass
+	if c := m.curChat(); c != nil {
+		p = c.peer
+	}
+	what := "ảnh"
+	if d, ok := docOf(l.msg); ok {
+		what = docName(d)
+		if d.Size > 0 {
+			what += " (" + humanSize(d.Size) + ")"
+		}
+	}
+	m.note = "⬇ Đang tải " + what + "…"
 	work := func() tea.Msg {
-		if p, ok := photoOf(l.msg); ok {
-			path, err := downloadPhoto(ctx, api, p, false)
+		if ph, ok := photoOf(l.msg); ok {
+			path, err := downloadPhoto(ctx, api, ph, false)
 			if err != nil {
-				return toastMsg{"tải ảnh lỗi: " + err.Error()}
+				return doneMsg{"tải ảnh lỗi: " + errText(err), true}
 			}
-			if pic, err := renderImage(path, w, h-2); err == nil {
+			if pic, err := renderViewerImage(path, w, h-2); err == nil {
 				return viewMsg{viewer{pic, path, title}}
 			}
-			openExternal(path)
-			return toastMsg{"Đã mở ảnh bằng ứng dụng hệ thống"}
+			openURL(path)
+			return doneMsg{"Đã mở ảnh bằng ứng dụng hệ thống", false}
 		}
 		d, ok := docOf(l.msg)
 		if !ok {
-			return nil
+			return doneMsg{"", false}
 		}
 		path, err := downloadDoc(ctx, api, d)
+		if tgerr.Is(err, "FILE_REFERENCE_EXPIRED") && p != nil && l.id != 0 { // an old message: its file needs a fresh reference
+			if res, e := getMessages(ctx, api, p, []tg.InputMessageClass{&tg.InputMessageID{ID: l.id}}); e == nil {
+				for _, nl := range linesOf(res) {
+					if nd, ok := docOf(nl.msg); ok && nl.id == l.id {
+						d = nd
+						path, err = downloadDoc(ctx, api, d)
+					}
+				}
+			}
+		}
 		if err != nil {
-			return toastMsg{"tải tệp lỗi: " + err.Error()}
+			return doneMsg{"tải tệp lỗi: " + errText(err), true}
 		}
 		if strings.HasPrefix(d.MimeType, "image/") {
-			if pic, err := renderImage(path, w, h-2); err == nil {
+			if pic, err := renderViewerImage(path, w, h-2); err == nil {
 				return viewMsg{viewer{pic, path, title}}
 			}
 		}
-		if openable[strings.ToLower(filepath.Ext(path))] {
-			openExternal(path)
-			return toastMsg{"Đã mở " + docName(d)}
+		if k := infoOf(d).kind; (k == "video" || k == "gif") && mpvPath() != "" {
+			return playMsg{path}
 		}
-		return toastMsg{"Đã lưu: " + path}
+		if openable[strings.ToLower(filepath.Ext(path))] {
+			openURL(path)
+			return doneMsg{"Đã lưu và mở " + path, false}
+		}
+		revealFile(path)
+		return doneMsg{"Đã lưu " + path, false}
 	}
-	return tea.Batch(m.toastCmd("Đang tải…"), work)
+	return work
 }
 
 // thumbCmds downloads thumbnails for the newest few photos of the open view (BONAGRAM_PREVIEWS=1).
 func (m *model) thumbCmds() tea.Cmd {
-	if !m.cfg.previews || m.cfg.previewRows <= 0 || m.cfg.previewCnt <= 0 || m.api == nil {
+	if m.api == nil {
 		return nil
+	}
+	stickers := m.stickerCmds()
+	if !m.cfg.previews || m.cfg.previewRows <= 0 || m.cfg.previewCnt <= 0 {
+		return stickers
 	}
 	var photos []line
 	for _, l := range m.lines() {
@@ -1373,6 +1513,39 @@ func (m *model) thumbCmds() tea.Cmd {
 				return thumbMsg{id: id, err: err}
 			}
 			pic, err := renderImage(path, maxC, rows)
+			return thumbMsg{id: id, pic: pic, err: err}
+		})
+	}
+	return tea.Batch(append(cmds, stickers)...)
+}
+
+const (
+	stickerRows = 6  // height of a sticker in the message view
+	stickerMax  = 12 // stickers drawn per view (the newest)
+)
+
+// stickerCmds draws the newest static stickers of the open view (animated ones stay a label).
+func (m *model) stickerCmds() tea.Cmd {
+	var ls []line
+	for _, l := range m.lines() {
+		if d, ok := staticSticker(l.msg); ok && l.id != 0 && d != nil {
+			ls = append(ls, l)
+		}
+	}
+	var cmds []tea.Cmd
+	for _, l := range ls[max(0, len(ls)-stickerMax):] {
+		if m.thumbs[l.id] != nil {
+			continue
+		}
+		m.thumbs[l.id] = &thumb{}
+		ctx, api, id, msg := m.ctx, m.api, l.id, l.msg
+		cmds = append(cmds, func() tea.Msg {
+			d, _ := staticSticker(msg)
+			path, err := downloadSticker(ctx, api, d)
+			if err != nil {
+				return thumbMsg{id: id, err: err}
+			}
+			pic, err := renderImage(path, stickerRows*2, stickerRows)
 			return thumbMsg{id: id, pic: pic, err: err}
 		})
 	}
@@ -1453,7 +1626,7 @@ func (m *model) onEdit(ev editMsg) tea.Cmd {
 			continue
 		}
 		old, n := ls[i], ev.line
-		n.from, n.sender, n.out, n.at, n.replyTo, n.topic = old.from, old.sender, old.out, old.at, old.replyTo, old.topic
+		n.from, n.sender, n.out, n.at, n.replyTo, n.quote, n.topic = old.from, old.sender, old.out, old.at, old.replyTo, old.quote, old.topic
 		if n.msg != nil && n.msg.Reactions.Results == nil {
 			n.reacts = old.reacts // an edit without reactions is not a removal of them
 		}
@@ -1478,4 +1651,19 @@ func (m *model) onEdit(ev editMsg) tea.Cmd {
 		cmds = append(cmds, tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg { return renderTick{} }))
 	}
 	return tea.Batch(cmds...)
+}
+
+// nameOf finds the name of a sender (peer key) among the lines already loaded; "" when none has it.
+func (m *model) nameOf(key string) string {
+	if key == "" {
+		return ""
+	}
+	for _, ls := range m.msgs {
+		for i := len(ls) - 1; i >= 0; i-- {
+			if ls[i].sender == key && ls[i].from != "?" && ls[i].from != "Thành viên" && !ls[i].out {
+				return ls[i].from
+			}
+		}
+	}
+	return ""
 }

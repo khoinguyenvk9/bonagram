@@ -34,16 +34,17 @@ const (
 	listY0     = 4 // the 3-row search box, then a blank row
 	headRows   = 3 // the header band beside the search box: blank, chat name, what it is
 	composeRow = 3 // bordered input
-	keysText   = "F1 help  ^K search  ^N ^P chats  ^T ^Y topics  ^G unread  ^B messages  ^R reply  Esc cancel"
+	keysText   = "F1 help  ^K search  ^N ^P chats  ^T ^Y topics  ^G unread  ^F find  ^B messages  ^R reply  Esc cancel"
 )
 
 func fg(c string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(c)) }
 
+func rgb(h string) (int, int, int) {
+	v, _ := strconv.ParseUint(strings.TrimPrefix(h, "#"), 16, 32)
+	return int(v >> 16 & 255), int(v >> 8 & 255), int(v & 255)
+}
+
 func sgr(foreground, background string) string {
-	rgb := func(h string) (int, int, int) {
-		v, _ := strconv.ParseUint(strings.TrimPrefix(h, "#"), 16, 32)
-		return int(v >> 16 & 255), int(v >> 8 & 255), int(v & 255)
-	}
 	r, g, b := rgb(foreground)
 	r2, g2, b2 := rgb(background)
 	return fmt.Sprintf("\x1b[38;2;%d;%d;%d;48;2;%d;%d;%dm", r, g, b, r2, g2, b2)
@@ -99,6 +100,10 @@ func (m *model) render() {
 			fg(cMuted).Render("Chọn một chat ở bên trái · Ctrl+K để tìm · Ctrl+N / Ctrl+P để đổi chat · F1 hướng dẫn")))
 		return
 	}
+	if m.ms != nil && len(m.ms.res) > 0 {
+		m.renderResults()
+		return
+	}
 	ls := m.lines()
 	byID := make(map[int]*line, len(ls))
 	for i := range ls {
@@ -109,6 +114,7 @@ func (m *model) render() {
 	cw := max(m.vp.Width-4, 10) // 2 columns of gutter on each side
 	bw := min(cw, max(cw*7/10, 24))
 	var out []string
+	var outRow []bool
 	m.lineAt = m.lineAt[:0]
 	m.hits = m.hits[:0]
 	for i, l := range ls {
@@ -117,13 +123,20 @@ func (m *model) render() {
 			prev = &ls[i-1]
 		}
 		var quote string
-		if t := byID[l.replyTo]; !l.out && t != nil && t.out {
-			quote = `↪ bạn: "` + cut(t.text, 60) + `"`
+		t := byID[l.replyTo]
+		switch {
+		case l.replyTo == 0:
+		case t != nil:
+			quote = "↪ " + quoteText(t.from, t.text)
+		case l.quote != "":
+			quote = "↪ " + l.quote
+		default:
+			quote = "↪ trả lời một tin nhắn cũ"
 		}
-		mine := !l.out && (l.mentioned || quote != "")
+		mine := !l.out && (l.mentioned || (t != nil && t.out))
 		head := mine || !followUp(l, prev)
 		if head && i > 0 {
-			out = append(out, "")
+			out, outRow = append(out, ""), append(outRow, false)
 		}
 		m.lineAt = append(m.lineAt, len(out))
 
@@ -179,12 +192,17 @@ func (m *model) render() {
 			if sel {
 				row = paint(row, m.vp.Width, cFg, cSel)
 			}
-			out = append(out, row)
+			out, outRow = append(out, row), append(outRow, l.out)
 		}
 	}
 	m.nLines = len(out)
+	m.rows, m.rowOut = out, outRow
+	m.links = m.links[:0]
+	for r, row := range out {
+		m.links = append(m.links, linkSpans(r, row)...)
+	}
 	stick := m.vp.AtBottom()
-	m.vp.SetContent(strings.Join(out, "\n"))
+	m.paintContent()
 	if stick {
 		m.vp.GotoBottom()
 	}
@@ -456,7 +474,11 @@ func (m model) View() string {
 }
 
 func (m model) viewerView() string {
-	body := lipgloss.Place(m.w, max(m.h-2, 1), lipgloss.Center, lipgloss.Center, strings.Join(m.viewer.pic.rows, "\n"))
+	pic := m.viewer.pic
+	body := lipgloss.Place(m.w, max(m.h-2, 1), lipgloss.Center, lipgloss.Center, strings.Join(pic.rows, "\n"))
+	if len(pic.rows) > 0 { // iTerm2/Sixel: painted over the blank rows once this frame is out
+		queueDraw(1+(max(m.h-2, 1)-len(pic.rows))/2, (m.w-ansi.StringWidth(pic.rows[0]))/2, pic)
+	}
 	hint := "Esc / Q đóng · O mở bằng ứng dụng hệ thống"
 	if m.err != "" {
 		hint = m.err

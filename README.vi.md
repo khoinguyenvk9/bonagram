@@ -109,11 +109,12 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 | Phím | Tác dụng |
 |---|---|
 | `Ctrl+K` | Tìm chat (`↑` `↓` chọn kết quả, `Enter` mở, `Esc` huỷ) |
+| `Ctrl+F` | Tìm trong nội dung tin nhắn của chat (hoặc topic) đang mở: gõ từ khoá, `Enter` để tìm, `↑` `↓` chọn, `Enter` mở các tin quanh kết quả đó, `Esc` đóng. Tối đa 50 kết quả, mới nhất trước. Khi đang xem đoạn tin cũ, tin mới không được thêm vào đó và thanh phía trên có báo; `Esc` để về tin mới nhất |
 | `Ctrl+N` / `Ctrl+P` | Chat kế tiếp / trước đó |
 | `Ctrl+G` | Nhảy tới chat có tin chưa đọc |
 | `Ctrl+T` / `Ctrl+Y` | Topic kế tiếp / trước đó (nhóm forum) |
 | `Ctrl+B` | Chọn tin trong khung tin nhắn (`↑` `↓` di chuyển, `Esc` thoát) |
-| `Enter` trên tin có ảnh hoặc tệp | Xem ảnh to (`Esc` hoặc `Q` đóng, `O` mở bằng ứng dụng hệ thống) |
+| `Enter` trên tin có ảnh hoặc tệp | Ảnh thì xem to (`Esc` hoặc `Q` đóng, `O` mở bằng ứng dụng hệ thống). Tệp thì được lưu vào thư mục `Downloads` của bạn (tệp trùng tên và cùng dung lượng thì dùng lại, khác nội dung thì thành `tên (1).đuôi`) rồi mở bằng ứng dụng hệ thống nếu là loại biết là an toàn (tài liệu, ảnh, âm thanh, video); loại khác chỉ được chỉ ra trong trình quản lý tệp, không bao giờ chạy. Thanh dưới cùng cho biết đang tải gì; lỗi thì nằm lại trên màn hình đến khi bạn thao tác. Tin cũ mà liên kết tệp đã hết hạn thì app tự đọc lại tin đó |
 | `Enter` hoặc `Ctrl+R` trên tin thường | Trả lời tin đó (`Ctrl+R` khi chưa chọn tin: trả lời tin mới nhất) |
 | `C` (khi đang chọn tin) | Chép khối code của tin; bấm lần nữa để sang khối kế tiếp. Tin không có code thì chép cả tin |
 | `E` `D` `R` `F` `O` `M` (khi đang chọn tin) | Sửa, xoá, reaction, chuyển tiếp, mở link, nhảy tới @mention. Xem phần dưới |
@@ -126,10 +127,27 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 Chuột:
 
 - Click chat để mở, click ô tìm chat để tìm, click tab topic để chuyển topic.
-- Click một tin để chọn: click ảnh hoặc tệp thì mở ngay, tin thường thì được tô sáng để dùng ngay `E`/`D`/`R`/`F`/`O` (`Enter` để trả lời tin đó).
+- Click một tin để chọn: click ảnh thì mở ngay; click tệp chỉ chọn tin (thanh dưới báo tên và dung lượng, `Enter` để tải); tin thường thì được tô sáng để dùng ngay `E`/`D`/`R`/`F`/`O` (`Enter` để trả lời tin đó).
+- Link có màu xanh. Rê chuột lên thì được gạch chân; click thường (không kéo) sẽ mở link trong trình duyệt. Click chỉ chọn tin khi không trúng link. App không thấy được phím `Cmd` (terminal không báo phím này), nên click thường là đủ.
 - Click `[copy]` trên khối code để chép code.
 - Cuộn chuột trên danh sách chat hoặc khung tin; kéo thanh dọc giữa hai khung để đổi độ rộng.
-- Vì app bật chế độ chuột, muốn bôi đen chữ bằng chuột hãy giữ `Shift` khi kéo.
+- Kéo chuột qua chữ trong tin nhắn để bôi đen: thả chuột là chữ được chép (vẫn tô cho tới khi bấm phím hoặc click). Kéo ra ngoài mép trên hoặc dưới thì khung cuộn. Link dài bị xuống dòng sẽ được chép kèm dấu xuống dòng, hãy dùng `L` để chép link.
+
+## Định dạng chữ
+
+Chữ bạn gõ (ở ô nhập và khi sửa tin) được đọc theo các ký hiệu quen thuộc của Telegram:
+
+| Gõ | Kết quả |
+|---|---|
+| `**đậm**` | **đậm** |
+| `__nghiêng__` | _nghiêng_ |
+| `~~gạch~~` | ~~gạch~~ |
+| `\|\|ẩn\|\|` | chữ ẩn (spoiler) |
+| `` `code` `` | code trong dòng |
+| ```` ```go ```` xuống dòng, code, xuống dòng ```` ``` ```` | khối code (ngôn ngữ không bắt buộc) |
+| `[chữ](https://địa-chỉ)` | link nằm sau chữ |
+
+Ký hiệu không có cặp, hoặc theo sau là dấu cách, được giữ nguyên; `*` và `_` đơn lẻ không phải ký hiệu nên `snake_case` và `2*3` an toàn. Dấu `\` đặt trước ký hiệu để gõ nó nguyên văn (`\**`). Bấm `E` trên một tin thì định dạng của nó được đổi lại thành ký hiệu để sửa mà không mất. Tin nhận về được vẽ với đậm, nghiêng, gạch chân, gạch ngang, code, link và mention. Chưa làm: chú thích của tệp gửi nguyên ký hiệu như đã gõ; gạch chân và trích dẫn không gõ được (chỉ được giữ nếu bạn không sửa tin đó).
 
 ## Thao tác trên tin nhắn
 
@@ -142,21 +160,36 @@ Bấm `Ctrl+B` (hoặc click một tin) để chọn tin, rồi:
 | `R` | **Thả reaction**: bấm số `1`..`7` (👍 👎 ❤ 🔥 🎉 😁 😢). Bấm lại đúng reaction đã thả để bỏ |
 | `F` | **Chuyển tiếp**: chọn chat đích trong danh sách bên trái (gõ để tìm), `Enter` để gửi, `Esc` để huỷ. Tin vào chat đích, nếu đích là nhóm forum thì vào topic General |
 | `O` | **Mở link** trong tin bằng trình duyệt (chỉ http/https). Tin có nhiều link: bấm `O` tiếp để sang link kế |
+| `L` | **Chép link** của tin (mỗi link một dòng), kể cả địa chỉ ẩn sau một từ |
 | `M` | Nhảy lên @mention gần nhất trong các tin đã tải |
 
 Các việc khác:
 
 - **Gửi ảnh hoặc tệp**: bấm nút `[Tệp]` ở bên phải ô nhập (hoặc `Ctrl+O`) để mở hộp thoại chọn tệp của hệ điều hành, chọn một hoặc nhiều tệp; hoặc gõ `/file ` rồi các đường dẫn, hoặc kéo tệp từ Finder thả vào terminal để terminal dán đường dẫn. Ví dụ `/file ~/Downloads/bao-cao.pdf ~/Pictures/a.png`. Các tệp sẽ hiện ở dòng phía trên ô nhập: gõ chú thích (không bắt buộc) rồi `Enter` để gửi, hoặc `Esc` để bỏ. Ảnh jpg/png dưới 10 MB gửi dạng ảnh, còn lại gửi dạng tệp; nhiều ảnh (hoặc nhiều tệp) gửi thành một album tối đa 10, chú thích nằm ở tệp đầu. Đang trả lời một tin thì tệp gửi kèm làm trả lời tin đó. Trên Linux hộp thoại cần `zenity` hoặc `kdialog`; macOS và Windows có sẵn.
 - **Tin ghim**: dòng `▍ Ghim` ở đầu chat là tin được ghim mới nhất (với nhóm forum, của topic đang xem). Lấy bằng một yêu cầu khi mở chat.
+- **Nhắc tên (@mention)**: trong nhóm, gõ `@` ở đầu một từ thì danh sách thành viên hiện ở dòng phía trên ô nhập (gõ tiếp để lọc theo tên hoặc username). `↑` `↓` chọn, `Tab` hoặc `Enter` chèn, `Esc` đóng. App chỉ xin danh sách thành viên từ Telegram khi bạn gõ `@`, không tải trước gì. Người không có username vẫn được nhắc bằng tên và vẫn nhận thông báo. Một số nhóm lớn ẩn danh sách thành viên với người không phải quản trị; khi đó app báo không đọc được thành viên.
 - **Nháp**: chữ đang gõ dở được giữ riêng cho từng chat và từng topic khi bạn chuyển đi chỗ khác, quay lại là còn. Nháp chỉ nằm trong bộ nhớ, thoát app là mất.
 
 Những thao tác này chỉ chạy khi bạn bấm, mỗi lần là một yêu cầu tới Telegram, không có việc nào chạy nền.
 
 ## Ảnh và tệp
 
-Terminal Kitty và Ghostty hiện ảnh thật; terminal khác (và tmux) hiện bằng khối màu nửa ô. Nếu ảnh không hiện đúng trên terminal của bạn, đặt `BONAGRAM_IMAGES=blocks` (luôn dùng khối màu) hoặc `BONAGRAM_IMAGES=kitty` (ép dùng giao thức Kitty).
+Ảnh theo từng terminal:
 
-Tệp ngoài ảnh chỉ được mở bằng ứng dụng hệ thống nếu thuộc loại quen thuộc (ảnh, video, âm thanh, PDF, văn bản, tài liệu Office). Loại khác chỉ được lưu vào thư mục cache và báo đường dẫn, vì mở bừa một tệp nhận từ chat có thể chạy mã.
+| Terminal | Trong danh sách tin | Xem toàn màn hình (`Enter` trên ảnh) |
+|---|---|---|
+| Kitty, Ghostty | ảnh thật (giao thức Kitty) | ảnh thật |
+| iTerm2, WezTerm, mintty, Rio, VS Code | khối màu | ảnh thật (giao thức iTerm2) |
+| foot, Windows Terminal (1.22+), Konsole, mlterm, contour | khối màu | ảnh thật (Sixel) |
+| Terminal.app, Alacritty, GNOME Terminal, tmux, khác | khối màu | khối màu |
+
+App đoán terminal qua biến môi trường; mới chỉ thử thật trên Kitty và Ghostty, các dòng còn lại theo tài liệu của từng terminal. Nếu đoán sai, đặt `BONAGRAM_IMAGES` thành `kitty`, `iterm`, `sixel` hoặc `blocks`. Sticker tĩnh được vẽ ngay trong danh sách tin (12 cái mới nhất của chat); sticker động vẫn là nhãn.
+
+**Video và GIF:** `Enter` tải video về và, nếu máy có [mpv](https://mpv.io), phát ngay trong terminal (đồ hoạ Kitty trên Kitty/Ghostty, Sixel nơi có Sixel, ô chữ màu ở chỗ khác; `q` để dừng và quay lại app). Không có mpv thì mở bằng trình phát của hệ thống. Cài mpv: `brew install mpv`, `apt install mpv` hoặc `winget install mpv`.
+
+**Vị trí:** vị trí nhận được hiện thành thẻ có link "Mở bản đồ" (Google Maps; click, hoặc `O`/`L` trên tin). Gửi vị trí bằng `/position 10.7769, 106.7009` (hoặc `/vitri`); dán link Google Maps có `@vĩ-độ,kinh-độ` hoặc `q=vĩ-độ,kinh-độ` cũng được. Terminal không biết bạn đang ở đâu nên bạn phải đưa toạ độ.
+
+Tệp ngoài ảnh chỉ được mở bằng ứng dụng hệ thống nếu thuộc loại quen thuộc (ảnh, video, âm thanh, PDF, văn bản, tài liệu Office). Tệp được lưu vào thư mục Downloads; loại khác chỉ được chỉ ra trong trình quản lý tệp, vì mở bừa một tệp nhận từ chat có thể chạy mã.
 
 ## Khối code và copy
 
@@ -185,7 +218,7 @@ BONAGRAM_FPS=60
 | `BONAGRAM_PREVIEWS` | `0` (0 hoặc 1) | `1` hiện thumbnail ảnh ngay trong khung chat |
 | `BONAGRAM_PREVIEW_ROWS` | `8` (0 đến 30) | Chỉ có tác dụng khi `BONAGRAM_PREVIEWS=1`: chiều cao tối đa của thumbnail, tính bằng dòng |
 | `BONAGRAM_PREVIEW_COUNT` | `8` (0 đến 50) | Chỉ có tác dụng khi `BONAGRAM_PREVIEWS=1`: chỉ N ảnh mới nhất trong chat có thumbnail |
-| `BONAGRAM_IMAGES` | tự nhận | `kitty` hoặc `blocks`: ép cách vẽ ảnh |
+| `BONAGRAM_IMAGES` | tự nhận | `kitty`, `iterm`, `sixel` hoặc `blocks`: ép cách vẽ ảnh |
 | `BONAGRAM_FPS` | `60` (10 đến 120) | Số khung hình tối đa mỗi giây. Thấp hơn thì tốn ít CPU hơn lúc để yên nhưng gõ và cuộn kém mượt hơn |
 
 ## Bộ nhớ, CPU và dung lượng
@@ -238,7 +271,7 @@ set -g focus-events on                # thông báo và đánh dấu đã đọc
 set -g mouse on
 ```
 
-Trong tmux ảnh luôn hiện bằng khối màu (không dùng giao thức Kitty).
+Trong tmux ảnh luôn hiện bằng khối màu (không dùng Kitty, iTerm2 hay Sixel).
 
 ## Dữ liệu và bảo mật
 
@@ -278,26 +311,27 @@ Trong tmux ảnh luôn hiện bằng khối màu (không dùng giao thức Kitty
 - Tối đa 1.000 chat chính; chat lưu trữ bị ẩn.
 - Mỗi lần mở chat tải 40 tin gần nhất, cuộn lên tải thêm, tối đa `BONAGRAM_MAX_MESSAGES` tin (mặc định 500, tối đa 5.000).
 - Tối đa 100 topic mỗi nhóm forum.
-- Tin bị sửa bởi người khác (kể cả bot stream câu trả lời bằng cách sửa dần một tin) cập nhật trực tiếp, vẽ lại tối đa 4 lần mỗi giây. Tin bị xoá bởi người khác chỉ biến mất sau khi mở lại app.
+- Tin bị sửa bởi người khác (kể cả bot stream câu trả lời bằng cách sửa dần một tin) cập nhật trực tiếp, vẽ lại tối đa 4 lần mỗi giây. Tin bị người khác xoá vẫn nằm trên màn hình cho tới khi mở lại app. Việc này là cố ý: bạn vẫn đọc được tin đã gửi rồi xoá trước khi bạn kịp xem.
 - Tin ghim chỉ cập nhật khi mở chat; ghim hay bỏ ghim lúc đang xem chỉ hiện sau khi mở lại chat.
 - Chat lưu trữ nhận tin mới (và được Telegram tự bỏ lưu trữ) chỉ hiện lại sau khi mở lại app.
 
 **Tính năng chưa có**
-- Gửi: văn bản thuần, ảnh và tệp (một hoặc nhiều, kèm chú thích). Chưa có giọng nói, định dạng chữ. Telegram giới hạn 4.096 ký tự mỗi tin, vượt quá sẽ báo lỗi gửi.
+- Gửi: văn bản thuần, ảnh và tệp (một hoặc nhiều, kèm chú thích). Chưa có giọng nói. Định dạng chữ gõ bằng ký hiệu (xem mục "Định dạng chữ"). Telegram giới hạn 4.096 ký tự mỗi tin, vượt quá sẽ báo lỗi gửi.
 - Reaction: chỉ 7 emoji cố định; nếu chat không cho dùng emoji đó (ví dụ Saved Messages) Telegram từ chối và app báo lỗi. Sửa, xoá chỉ áp dụng cho tin của bạn (trong Saved Messages là mọi tin). Xoá không hoàn tác được.
 - Chuyển tiếp: từng tin một, giữ tên người gửi gốc, vào topic General nếu đích là nhóm forum.
 - Tin bạn gửi dạng tệp hoặc chuyển tiếp hiện sau vài giây, khi app tải lại các tin mới nhất của chat đó.
-- Hiển thị: in đậm, nghiêng, liên kết bấm được bằng chuột (dùng phím `O`), tô màu cú pháp trong khối code, hình của emoji tuỳ chỉnh, xem ai đã thả phản ứng. Sticker, tin thoại, bình chọn, vị trí... hiện dưới dạng nhãn như `[file]`, `[media]`.
+- Hiển thị: in đậm, nghiêng, liên kết bấm được bằng chuột (dùng phím `O`), tô màu cú pháp trong khối code, hình của emoji tuỳ chỉnh, xem ai đã thả phản ứng. Tệp được vẽ thành một thẻ nhỏ: nhãn màu ghi loại (`PDF`, `ZIP`, `MP4`...), tên và dung lượng (video, âm thanh thêm thời lượng); trong danh sách chat là một dòng nhãn (`[file] bao-cao.pdf · 2.3 MB`); sticker, bình chọn, vị trí, liên hệ hiện nhãn ngắn. Bản xem trước link không thêm nhãn.
 - Chat bí mật (secret chat), cuộc gọi, story: không hỗ trợ.
 - Giao diện chỉ có tiếng Việt, một bảng màu tối cố định.
 - Chat có tin mới nhảy lên đầu nhóm chat thường; chat ghim luôn nằm trên cùng và giữ vị trí. Ghim hoặc bỏ ghim chat lúc đang chạy chỉ hiện sau khi mở lại app.
 
 **Theo terminal**
-- Ảnh thật chỉ có trên Kitty và Ghostty; còn lại là khối màu.
+- Ảnh thật trong danh sách tin chỉ có trên Kitty và Ghostty; khung xem toàn màn hình có thêm các terminal hỗ trợ giao thức iTerm2 và Sixel; còn lại là khối màu. Xem bảng ở mục ảnh.
 - Thông báo desktop và đánh dấu đã đọc đúng lúc cần terminal báo trạng thái cửa sổ (focus). Terminal không báo thì app coi như cửa sổ luôn đang được xem.
+- **Link**: mỗi link còn là hyperlink OSC 8, nên terminal có hỗ trợ sẽ gạch chân khi giữ `Cmd` (macOS) hoặc `Ctrl` (Linux, Windows) và rê chuột lên, rồi mở khi `Cmd`/`Ctrl`+click, như link ở các chương trình khác. Terminal có hỗ trợ OSC 8 theo tài liệu của chúng (chưa thử trên từng cái): iTerm2, Ghostty, Kitty, WezTerm, Windows Terminal, GNOME Terminal và các terminal VTE khác, Konsole, Alacritty. **Không hỗ trợ:** Terminal.app (macOS), xterm, console văn bản của Linux; trong tmux cần bản 3.4 trở lên và `set -as terminal-features ',*:hyperlinks'`. Nơi nào thiếu thì màu xanh, gạch chân khi rê và click thường của app vẫn dùng được. Chưa kiểm tra: terminal tự mở link khi `Cmd`+click có đồng thời báo cú click đó cho app không, nếu có thì link bị mở hai lần. Terminal nào chạy khác thì ghi thêm vào danh sách này.
 - Nút copy dùng OSC 52 (Ghostty, Kitty, WezTerm, iTerm2) và các công cụ `pbcopy`, `wl-copy`, `xclip`; Terminal.app chỉ chạy được nhờ `pbcopy`.
 - Chữ đang soạn của bộ gõ tiếng Việt chỉ hiện đúng chỗ nếu terminal vẽ nó tại vị trí con trỏ. Chưa kiểm tra trên mọi terminal.
-- Vì app bật chế độ chuột, muốn bôi đen chữ phải giữ `Shift` khi kéo.
+- App giữ chuột nên không bôi đen bằng terminal được; việc kéo chuột qua tin nhắn do app xử lý (chép qua các đường clipboard ở trên).
 
 ## Phát triển
 

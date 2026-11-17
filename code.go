@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf16"
 
@@ -75,6 +76,225 @@ func segments(msg string, es []tg.MessageEntityClass) []seg {
 	return out
 }
 
+const cLink = "#6fa8dc" // links, mentions and the like
+
+func fgSeq(c string) string {
+	r, g, b := rgb(c)
+	return fmt.Sprintf("\x1b[38;2;%d;%d;%dm", r, g, b)
+}
+
+const osc8 = "\x1b]8;"
+
+// linkSeq starts a link: an OSC 8 hyperlink (terminals that support it underline it when Cmd/Ctrl is held
+// over it and open it on Cmd/Ctrl+click). The id ties the pieces of one link together when it wraps.
+func linkSeq(id, url string) string { return osc8 + "id=" + id + ";" + url + "\x1b\\" }
+
+const linkEnd = osc8 + ";\x1b\\"
+
+// inline is the text of a message between UTF-16 offsets from and to, with its entities drawn: bold, italic,
+// underline, strike, spoiler (dimmed), inline code, links (blue, an OSC 8 hyperlink, underlined while the mouse
+// is over the address hot), and mentions and hashtags in the link colour. The address of a hidden link is written
+// after its words ("docs (https://...)"), because a terminal cannot show a link behind a word.
+func inline(m *tg.Message, from, to int, hot string) string {
+	u := utf16.Encode([]rune(m.Message))
+	from, to = max(from, 0), min(to, len(u))
+	if from >= to {
+		return ""
+	}
+	text := func(a, b int) string { return clean(string(utf16.Decode(u[a:b]))) }
+	type ent struct {
+		off, end int
+		sgr      string
+		link     *linkEnt
+	}
+	var es []ent
+	for _, e := range m.Entities {
+		off, end := e.GetOffset(), e.GetOffset()+e.GetLength()
+		if off < from {
+			off = from
+		}
+		end = min(end, to)
+		if off >= end {
+			continue
+		}
+		var sg string
+		switch e.(type) {
+		case *tg.MessageEntityBold:
+			sg = "\x1b[1m"
+		case *tg.MessageEntityItalic, *tg.MessageEntityBlockquote:
+			sg = "\x1b[3m"
+		case *tg.MessageEntityUnderline:
+			sg = "\x1b[4m"
+		case *tg.MessageEntityStrike:
+			sg = "\x1b[9m"
+		case *tg.MessageEntitySpoiler:
+			sg = "\x1b[2m"
+		case *tg.MessageEntityCode:
+			sg = sgr(cFg, cDivider)
+		case *tg.MessageEntityMention, *tg.MessageEntityMentionName, *tg.MessageEntityHashtag,
+			*tg.MessageEntityBotCommand, *tg.MessageEntityCashtag, *tg.MessageEntityEmail, *tg.MessageEntityPhone:
+			sg = fgSeq(cLink)
+		}
+		if sg != "" {
+			es = append(es, ent{off: off, end: end, sgr: sg})
+		}
+	}
+	links := linkEntities(m)
+	for i := range links {
+		l := &links[i]
+		if l.end == 0 || l.off >= to || l.end <= from {
+			continue
+		}
+		sg := fgSeq(cLink)
+		if l.url == hot {
+			sg += "\x1b[4m"
+		}
+		es = append(es, ent{off: max(l.off, from), end: min(l.end, to), sgr: sg, link: l})
+	}
+	if len(es) == 0 {
+		return text(from, to)
+	}
+	cuts := []int{from, to}
+	for _, e := range es {
+		cuts = append(cuts, e.off, e.end)
+	}
+	sort.Ints(cuts)
+	var b strings.Builder
+	linkN := 0
+	var cur *linkEnt
+	for k := 0; k+1 < len(cuts); k++ {
+		a, z := cuts[k], cuts[k+1]
+		if a == z {
+			continue
+		}
+		var styles string
+		var link *linkEnt
+		for _, e := range es {
+			if e.off <= a && e.end >= z {
+				styles += e.sgr
+				if e.link != nil && link == nil {
+					link = e.link
+				}
+			}
+		}
+		if link != cur {
+			if cur != nil {
+				b.WriteString(linkEnd)
+				if cur.hidden && cur.end <= a {
+					b.WriteString(fg(cMuted).Render(" (" + clean(cur.url) + ")"))
+				}
+			}
+			if link != nil {
+				b.WriteString(linkSeq("b"+strconv.Itoa(m.ID)+"_"+strconv.Itoa(linkN), clean(link.url)))
+				linkN++
+			}
+			cur = link
+		}
+		if styles != "" {
+			b.WriteString(styles + text(a, z) + "\x1b[0m")
+		} else {
+			b.WriteString(text(a, z))
+		}
+	}
+	if cur != nil {
+		b.WriteString(linkEnd)
+		if cur.hidden && cur.end <= to {
+			b.WriteString(fg(cMuted).Render(" (" + clean(cur.url) + ")"))
+		}
+	}
+	return b.String()
+}
+
+// carry makes each wrapped row of a text stand alone: the styles and the link still in force at the end of a row
+// are closed there and opened again at the start of the next, so nothing leaks into the rest of the screen.
+func carry(rows []string) []string {
+	sgrs, link := "", ""
+	for i, r := range rows {
+		pre := link + sgrs
+		for p := 0; p < len(r); {
+			e := strings.IndexByte(r[p:], 0x1b)
+			if e < 0 {
+				break
+			}
+			p += e
+			switch {
+			case strings.HasPrefix(r[p:], "\x1b["):
+				n := strings.IndexAny(r[p+2:], "mABCDHJKfhlsu")
+				if n < 0 {
+					p = len(r)
+					break
+				}
+				seq := r[p : p+2+n+1]
+				if r[p+2+n] == 'm' {
+					if params := seq[2 : len(seq)-1]; params == "" || params == "0" {
+						sgrs = ""
+					} else {
+						sgrs += seq
+					}
+				}
+				p += len(seq)
+			case strings.HasPrefix(r[p:], osc8):
+				n := strings.Index(r[p:], "\x1b\\")
+				if n < 0 {
+					p = len(r)
+					break
+				}
+				seq := r[p : p+n+2]
+				if _, url, _ := strings.Cut(seq[len(osc8):len(seq)-2], ";"); url == "" {
+					link = ""
+				} else {
+					link = seq
+				}
+				p += len(seq)
+			default:
+				p++
+			}
+		}
+		if sgrs != "" {
+			r += "\x1b[0m"
+		}
+		if link != "" {
+			r += linkEnd
+		}
+		rows[i] = pre + r
+	}
+	return rows
+}
+
+// linkSpan is a link on screen: its row in the message view, the columns [x0, x1) of that row, and its address.
+type linkSpan struct {
+	row, x0, x1 int
+	url         string
+}
+
+// linkSpans finds the links in one drawn row of the message view.
+func linkSpans(r int, row string) []linkSpan {
+	var out []linkSpan
+	col, p, start, url := 0, 0, 0, ""
+	for {
+		j := strings.Index(row[p:], osc8)
+		if j < 0 {
+			return out
+		}
+		j += p
+		col += ansi.StringWidth(row[p:j])
+		e := strings.Index(row[j:], "\x1b\\")
+		if e < 0 {
+			return out
+		}
+		_, u, _ := strings.Cut(row[j+len(osc8):j+e], ";")
+		p = j + e + 2
+		if u == "" {
+			if url != "" {
+				out = append(out, linkSpan{r, start, col, url})
+				url = ""
+			}
+		} else {
+			url, start = u, col
+		}
+	}
+}
+
 // hitSpec marks a copy button inside the lines returned by body: line idx, block width w, text to copy.
 type hitSpec struct {
 	idx, w int
@@ -91,8 +311,9 @@ var inlineCode = lipgloss.NewStyle().Foreground(lipgloss.Color(cFg)).Background(
 // body draws the text of a message: wrapped plain text, or, when it has code, paragraphs and code blocks.
 func (m *model) body(l line, bw, cw int) ([]string, []hitSpec) {
 	style := func(s string) string {
-		if l.out {
-			return fg(cAccent).Render(s)
+		if l.out { // keep the colour after a link or a muted piece ended with a reset
+			r, g, b := rgb(cAccent)
+			return fg(cAccent).Render(strings.ReplaceAll(s, "\x1b[0m", fmt.Sprintf("\x1b[0m\x1b[38;2;%d;%d;%dm", r, g, b)))
 		}
 		return s
 	}
@@ -101,17 +322,33 @@ func (m *model) body(l line, bw, cw int) ([]string, []hitSpec) {
 		for _, b := range strings.Split(ansi.Wrap(s, bw, ""), "\n") {
 			out = append(out, strings.TrimLeft(b, " "))
 		}
-		return out
+		return carry(out)
 	}
 	if len(l.segs) == 0 {
-		var out []string
-		for _, b := range wrap(l.text) {
-			out = append(out, style(b))
+		text := l.text
+		var card []string
+		if l.msg != nil {
+			card = mediaCard(l.msg, bw, m.hover)
+			tag := mediaTag(l.msg.Media)
+			if card != nil {
+				tag = ""
+			}
+			text = strings.TrimSpace(inline(l.msg, 0, len(l.msg.Message)*2, m.hover) + " " + tag)
 		}
-		return out, nil
+		var out []string
+		if text != "" || card == nil {
+			for _, b := range wrap(text) {
+				out = append(out, style(b))
+			}
+		}
+		return append(out, card...), nil
 	}
 	var out []string
 	var hits []hitSpec
+	offs := make([]int, len(l.segs)+1) // where each piece starts, in UTF-16 units of the message
+	for k, s := range l.segs {
+		offs[k+1] = offs[k] + len(utf16.Encode([]rune(s.raw)))
+	}
 	for i := 0; i < len(l.segs); {
 		if s := l.segs[i]; s.kind == segPre {
 			rows, w := codeBlock(s, min(cw, maxBlock))
@@ -124,28 +361,45 @@ func (m *model) body(l line, bw, cw int) ([]string, []hitSpec) {
 		for j < len(l.segs) && l.segs[j].kind != segPre {
 			j++
 		}
-		var para strings.Builder
-		for k, s := range l.segs[i:j] {
-			raw := s.raw
-			if s.kind == segText {
-				if k == 0 {
-					raw = strings.TrimLeft(raw, "\n")
-				}
-				if k == j-i-1 {
-					raw = strings.TrimRight(raw, "\n")
-				}
-				para.WriteString(style(clean(raw)))
-			} else {
-				para.WriteString(inlineCode.Render(clean(raw)))
+		var para string
+		if l.msg != nil { // the entities draw it: bold, links, inline code...
+			from, to := offs[i], offs[j]
+			if l.segs[i].kind == segText {
+				from += len(utf16.Encode([]rune(l.segs[i].raw))) - len(utf16.Encode([]rune(strings.TrimLeft(l.segs[i].raw, "\n"))))
 			}
+			if l.segs[j-1].kind == segText {
+				to -= len(utf16.Encode([]rune(l.segs[j-1].raw))) - len(utf16.Encode([]rune(strings.TrimRight(l.segs[j-1].raw, "\n"))))
+			}
+			para = inline(l.msg, from, to, m.hover)
+		} else {
+			var b strings.Builder
+			for k, s := range l.segs[i:j] {
+				raw := s.raw
+				if s.kind == segText {
+					if k == 0 {
+						raw = strings.TrimLeft(raw, "\n")
+					}
+					if k == j-i-1 {
+						raw = strings.TrimRight(raw, "\n")
+					}
+					b.WriteString(clean(raw))
+				} else {
+					b.WriteString(inlineCode.Render(clean(raw)))
+				}
+			}
+			para = b.String()
 		}
-		if ansi.Strip(para.String()) != "" {
-			out = append(out, wrap(para.String())...)
+		if ansi.Strip(para) != "" {
+			for _, b := range wrap(para) {
+				out = append(out, style(b))
+			}
 		}
 		i = j
 	}
 	if l.msg != nil {
-		if tag := mediaTag(l.msg.Media); tag != "" {
+		if card := mediaCard(l.msg, bw, m.hover); card != nil {
+			out = append(out, card...)
+		} else if tag := mediaTag(l.msg.Media); tag != "" {
 			out = append(out, style(tag))
 		}
 	}

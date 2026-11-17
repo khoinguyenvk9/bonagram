@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"image"
+	"image/color"
 	_ "image/gif"
 	_ "image/jpeg"
 	"image/png"
@@ -65,7 +66,7 @@ func (o lockedOut) Write(b []byte) (int, error) {
 	// Autowrap is off while a frame is drawn: if the terminal measures some character wider than we did, the
 	// overflow is clipped instead of wrapping onto the next line and shifting (and overlapping) the rest of
 	// the screen. It is back on right after, so a crash can not leave the shell without it.
-	if _, err := o.f.Write(append(append([]byte("\x1b[?7l"), b...), tail+"\x1b[?7h"...)); err != nil {
+	if _, err := o.f.Write(append(append([]byte("\x1b[?7l"), b...), takeDraw()+tail+"\x1b[?7h"...)); err != nil {
 		return 0, err
 	}
 	return len(b), nil
@@ -186,21 +187,110 @@ func docName(d *tg.Document) string {
 	return "file" + ext
 }
 
-func downloadDoc(ctx context.Context, api *tg.Client, d *tg.Document) (string, error) {
+// mpvPath finds mpv, which plays a video inside the terminal; a variable so tests decide.
+var mpvPath = func() string {
+	p, _ := exec.LookPath("mpv")
+	return p
+}
+
+// mpvArgs plays the file with the picture drawn the way this terminal can: Kitty graphics, Sixel, or coloured
+// text cells everywhere else. q quits and gives the screen back to the app.
+func mpvArgs(path string) []string {
+	vo := "--vo=tct"
+	switch {
+	case kitty:
+		vo = "--vo=kitty"
+	case rawProto == "sixel":
+		vo = "--vo=sixel"
+	}
+	return []string{vo, "--really-quiet", "--keep-open=no", "--loop-file=no", path}
+}
+
+// staticSticker is the document of a sticker that is a still picture (webp); animated ones (tgs, webm) are not.
+func staticSticker(m *tg.Message) (*tg.Document, bool) {
+	d, ok := docOf(m)
+	if !ok || d.MimeType != "image/webp" {
+		return nil, false
+	}
+	return d, infoOf(d).kind == "sticker"
+}
+
+// downloadSticker keeps a sticker in the cache folder (not in Downloads: it is only shown).
+func downloadSticker(ctx context.Context, api *tg.Client, d *tg.Document) (string, error) {
 	dir, err := cacheDir()
 	if err != nil {
 		return "", err
 	}
 	loc := &tg.InputDocumentFileLocation{ID: d.ID, AccessHash: d.AccessHash, FileReference: d.FileReference}
-	return fetch(ctx, api, loc, filepath.Join(dir, fmt.Sprintf("d%d-%s", d.ID, docName(d))))
+	return fetch(ctx, api, loc, filepath.Join(dir, fmt.Sprintf("s%d.webp", d.ID)))
+}
+
+// downloadsDir is where received files are saved: the user's Downloads folder, so they can be found.
+func downloadsDir() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return cacheDir()
+	}
+	d := filepath.Join(home, "Downloads")
+	if err := os.MkdirAll(d, 0o755); err != nil {
+		return cacheDir()
+	}
+	return d, nil
+}
+
+// savePath picks the file to write: the name of the file in dir, or "name (1).ext" when another file of that
+// name is already there. A file of the same name and size is taken to be this one downloaded before.
+func savePath(dir, name string, size int64) string {
+	ext := filepath.Ext(name)
+	base := strings.TrimSuffix(name, ext)
+	p := filepath.Join(dir, name)
+	for n := 1; n < 1000; n++ {
+		st, err := os.Stat(p)
+		if err != nil || (size > 0 && st.Size() == size) {
+			return p
+		}
+		p = filepath.Join(dir, fmt.Sprintf("%s (%d)%s", base, n, ext))
+	}
+	return p
+}
+
+// downloadDoc saves a document into the Downloads folder and checks that all of it arrived.
+func downloadDoc(ctx context.Context, api *tg.Client, d *tg.Document) (string, error) {
+	dir, err := downloadsDir()
+	if err != nil {
+		return "", err
+	}
+	loc := &tg.InputDocumentFileLocation{ID: d.ID, AccessHash: d.AccessHash, FileReference: d.FileReference}
+	path, err := fetch(ctx, api, loc, savePath(dir, docName(d), d.Size))
+	if err != nil {
+		return "", err
+	}
+	if st, err := os.Stat(path); err == nil && d.Size > 0 && st.Size() != d.Size {
+		os.Remove(path)
+		return "", fmt.Errorf("tệp tải về thiếu (%s / %s)", humanSize(st.Size()), humanSize(d.Size))
+	}
+	return path, nil
+}
+
+// revealFile shows a file in the file manager; a variable so tests do not start programs.
+var revealFile = func(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", "-R", path).Start()
+	case "windows":
+		return exec.Command("explorer", "/select,"+path).Start()
+	}
+	return exec.Command("xdg-open", filepath.Dir(path)).Start()
 }
 
 func openExternal(path string) error {
-	opener := "xdg-open"
-	if runtime.GOOS == "darwin" {
-		opener = "open"
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", path).Start()
+	case "windows": // there is no xdg-open: this is what "start" does, without a shell to quote for
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", path).Start()
 	}
-	return exec.Command(opener, path).Start()
+	return exec.Command("xdg-open", path).Start()
 }
 
 // --- drawing ------------------------------------------------------------------
@@ -208,6 +298,7 @@ func openExternal(path string) error {
 type picture struct {
 	rows []string
 	id   uint32 // kitty image id, 0 when drawn with half-blocks
+	raw  string // iTerm2 or Sixel sequence painted over the blank rows (viewer only)
 }
 
 func loadImage(path string) (image.Image, error) {
@@ -293,6 +384,8 @@ func placeholders(id uint32, c, r int) []string {
 
 func halfblocks(img image.Image, c, r int) []string {
 	dst := image.NewRGBA(image.Rect(0, 0, c, 2*r))
+	br, bg, bb := rgb(cBg) // transparent parts (stickers) take the app's background
+	draw.Draw(dst, dst.Bounds(), &image.Uniform{color.RGBA{uint8(br), uint8(bg), uint8(bb), 255}}, image.Point{}, draw.Src)
 	draw.ApproxBiLinear.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
 	rows := make([]string, r)
 	for y := range rows {

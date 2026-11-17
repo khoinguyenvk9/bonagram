@@ -66,7 +66,8 @@ func channelOf(p tg.InputPeerClass) (*tg.InputChannel, bool) {
 }
 
 func editText(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, text string) error {
-	_, err := api.MessagesEditMessage(ctx, &tg.MessagesEditMessageRequest{Peer: p, ID: id, Message: text})
+	plain, ents := parseMarkdown(text)
+	_, err := api.MessagesEditMessage(ctx, &tg.MessagesEditMessageRequest{Peer: p, ID: id, Message: plain, Entities: ents})
 	return err
 }
 
@@ -164,38 +165,72 @@ func loadPinned(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp int
 	return "", nil
 }
 
-// linksOf lists the http(s) links of a message, in order. Only those schemes are returned: anything else
-// (tg://, file:, javascript:) is not opened from a chat.
-func linksOf(m *tg.Message) []string {
+// webURL returns s as an http(s) address, adding "https://" to one without a scheme; ok is false for anything
+// else (tg://, file:, javascript:, mailto:), which is not opened from a chat.
+func webURL(s string) (string, bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", false
+	}
+	if !strings.Contains(s, "://") {
+		// a scheme without // (javascript:, mailto:, tel:) is not a web address; host:port is
+		if i := strings.IndexByte(s, ':'); i > 0 && !strings.Contains(s[:i], "/") && (i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9') {
+			return "", false
+		}
+		s = "https://" + s
+	}
+	if l := strings.ToLower(s); strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") {
+		return s, true
+	}
+	return "", false
+}
+
+// linkEnt is a link of a message: the words it covers (UTF-16 units [off, end), only when they lie inside the
+// text), its address, and whether the words hide that address (a "text link" rather than the address itself).
+type linkEnt struct {
+	off, end int
+	url      string
+	hidden   bool
+}
+
+// linkEntities lists the http(s) links of a message in entity order.
+func linkEntities(m *tg.Message) []linkEnt {
 	if m == nil {
 		return nil
 	}
 	u := utf16.Encode([]rune(m.Message))
-	var out []string
+	var out []linkEnt
 	for _, e := range m.Entities {
-		var s string
+		var l linkEnt
+		var raw string
 		switch v := e.(type) {
 		case *tg.MessageEntityURL:
 			if v.Offset >= 0 && v.Length > 0 && v.Offset+v.Length <= len(u) {
-				s = string(utf16.Decode(u[v.Offset : v.Offset+v.Length]))
+				raw = string(utf16.Decode(u[v.Offset : v.Offset+v.Length]))
+				l.off, l.end = v.Offset, v.Offset+v.Length
 			}
 		case *tg.MessageEntityTextURL:
-			s = v.URL
-		}
-		s = strings.TrimSpace(s)
-		if s == "" {
-			continue
-		}
-		if !strings.Contains(s, "://") {
-			// a scheme without // (javascript:, mailto:, tel:) is not a web address; host:port is
-			if i := strings.IndexByte(s, ':'); i > 0 && !strings.Contains(s[:i], "/") && (i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9') {
-				continue
+			raw, l.hidden = v.URL, true
+			if v.Offset >= 0 && v.Length > 0 && v.Offset+v.Length <= len(u) {
+				l.off, l.end = v.Offset, v.Offset+v.Length
 			}
-			s = "https://" + s
 		}
-		if l := strings.ToLower(s); strings.HasPrefix(l, "http://") || strings.HasPrefix(l, "https://") {
-			out = append(out, s)
+		if url, ok := webURL(raw); ok {
+			l.url = url
+			out = append(out, l)
 		}
+	}
+	return out
+}
+
+// linksOf lists the http(s) addresses of a message, in order; a location adds its map link.
+func linksOf(m *tg.Message) []string {
+	var out []string
+	for _, l := range linkEntities(m) {
+		out = append(out, l.url)
+	}
+	if lat, long, _, _, _, ok := geoOf(m); ok {
+		out = append(out, mapURL(lat, long))
 	}
 	return out
 }

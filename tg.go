@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -51,6 +52,7 @@ type line struct {
 	at        time.Time
 	mentioned bool
 	replyTo   int
+	quote     string // "name: text" of the message replied to when it is not among the loaded ones
 	topic     int
 	reacts    []reaction
 	segs      []seg       // code blocks / inline code of the text; nil when it has none
@@ -162,24 +164,113 @@ func peerExtra(e peer.Entities, p tg.PeerClass) (username string, forum bool) {
 	return
 }
 
+// humanSize writes a byte count the way file managers do: 512 B, 2.3 MB.
+func humanSize(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return strconv.FormatInt(n, 10) + " B"
+	}
+	v, u := float64(n), 0
+	for ; v >= unit && u < 3; u++ {
+		v /= unit
+	}
+	return strconv.FormatFloat(v, 'f', 1, 64) + " " + [...]string{"KB", "MB", "GB", "TB"}[u-1]
+}
+
+// docInfo is what a document says about itself.
+type docInfo struct {
+	kind    string // file, video, gif, audio, voice, sticker
+	name    string // the file name, "" when it has none
+	length  string // 0:34 for video and audio
+	artist  string // "title - performer" of a song
+	alt     string // the emoji of a sticker
+	voice   bool
+	hasName bool
+}
+
+func infoOf(d *tg.Document) docInfo {
+	in := docInfo{kind: "file"}
+	for _, a := range d.Attributes {
+		switch v := a.(type) {
+		case *tg.DocumentAttributeFilename:
+			in.hasName = true
+		case *tg.DocumentAttributeAnimated:
+			in.kind = "gif"
+		case *tg.DocumentAttributeVideo:
+			if in.kind != "gif" {
+				in.kind = "video"
+			}
+			in.length = clock(int(v.Duration))
+		case *tg.DocumentAttributeAudio:
+			in.kind, in.length = "audio", clock(v.Duration)
+			if v.Voice {
+				in.kind, in.voice = "voice", true
+			} else if t := strings.Trim(strings.TrimSpace(v.Title+" - "+v.Performer), " -"); t != "" {
+				in.artist = t
+			}
+		case *tg.DocumentAttributeSticker:
+			in.kind, in.alt = "sticker", v.Alt
+		}
+	}
+	if in.hasName {
+		in.name = docName(d)
+	}
+	return in
+}
+
+// docTag describes a document in one line: what kind it is, its name or length, and its size.
+func docTag(d *tg.Document) string {
+	in := infoOf(d)
+	var detail string
+	switch {
+	case in.kind == "sticker":
+		detail = in.alt
+	case in.kind == "file" || in.hasName:
+		detail = strings.TrimSpace(docName(d) + " " + in.length)
+		if !in.hasName {
+			detail += " (" + d.MimeType + ")"
+		}
+	case in.artist != "":
+		detail = in.artist + " · " + in.length
+	default:
+		detail = in.length
+	}
+	tag := "[" + in.kind + "]"
+	if detail != "" {
+		tag += " " + detail
+	}
+	if d.Size > 0 && in.kind != "sticker" {
+		tag += " · " + humanSize(d.Size)
+	}
+	return clean(tag)
+}
+
+// mediaTag is the label shown for what a message carries: [photo], [file] name · size, [video] 0:34 · 5.1 MB...
 func mediaTag(m tg.MessageMediaClass) string {
 	switch v := m.(type) {
-	case nil, *tg.MessageMediaEmpty:
+	case nil, *tg.MessageMediaEmpty, *tg.MessageMediaWebPage: // a link preview adds nothing: the link is in the text
 		return ""
 	case *tg.MessageMediaPhoto:
 		return "[photo]"
 	case *tg.MessageMediaDocument:
 		if d, ok := v.Document.(*tg.Document); ok {
-			for _, a := range d.Attributes {
-				switch a.(type) {
-				case *tg.DocumentAttributeAnimated:
-					return "[gif]"
-				case *tg.DocumentAttributeVideo:
-					return "[video]"
-				}
-			}
+			return docTag(d)
 		}
 		return "[file]"
+	case *tg.MessageMediaGeo:
+		if g, ok := v.Geo.(*tg.GeoPoint); ok {
+			return fmt.Sprintf("[location] %.5f, %.5f", g.Lat, g.Long)
+		}
+	case *tg.MessageMediaGeoLive:
+		if g, ok := v.Geo.(*tg.GeoPoint); ok {
+			return fmt.Sprintf("[live location] %.5f, %.5f", g.Lat, g.Long)
+		}
+	case *tg.MessageMediaVenue:
+		return clean("[location] " + v.Title)
+	case *tg.MessageMediaContact:
+		return clean("[contact] " + strings.TrimSpace(v.FirstName+" "+v.LastName+" "+v.PhoneNumber))
+	case *tg.MessageMediaPoll:
+		return clean("[poll] " + v.Poll.Question.Text)
 	}
 	return "[media]"
 }
@@ -244,7 +335,7 @@ func toLine(mc tg.NotEmptyMessage, e peer.Entities) (line, bool) {
 func addLine(ls []line, l line) []line {
 	for i := range ls {
 		if l.id != 0 && ls[i].id == l.id {
-			if ls[i].msg == nil { // the line was numbered from the send reply: now it gets its full content
+			if ls[i].msg == nil || ls[i].msg.ID == 0 { // the line was numbered (or drawn from what we typed) from the send reply: now it gets its full content
 				ls[i].msg, ls[i].segs = l.msg, l.segs
 			}
 			return ls
@@ -406,6 +497,7 @@ func loadMessages(ctx context.Context, api *tg.Client, p tg.InputPeerClass, topi
 		it := query.Messages(api).GetHistory(p).OffsetID(offsetID).BatchSize(n).Iter()
 		err = collect(it.Next, func() (tg.NotEmptyMessage, peer.Entities) { v := it.Value(); return v.Msg, v.Entities }, it.Err)
 	}
+	fillQuotes(ctx, api, p, out)
 	// newest first from the server; show oldest first
 	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
 		out[i], out[j] = out[j], out[i]
@@ -446,12 +538,12 @@ func markRead(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp, upto
 
 // sendText posts text; replyTo (0 = none) is the message answered, topic (> 1) the forum topic to post into.
 // It returns the id the server gave the message (0 if the answer does not say).
-func sendText(ctx context.Context, api *tg.Client, p tg.InputPeerClass, text string, replyTo, tp int) (int, error) {
+func sendText(ctx context.Context, api *tg.Client, p tg.InputPeerClass, text string, replyTo, tp int, ents []tg.MessageEntityClass) (int, error) {
 	rid, err := randID()
 	if err != nil {
 		return 0, err
 	}
-	req := &tg.MessagesSendMessageRequest{Peer: p, Message: text, RandomID: rid}
+	req := &tg.MessagesSendMessageRequest{Peer: p, Message: text, RandomID: rid, Entities: ents}
 	switch {
 	case replyTo != 0 && tp > 1:
 		req.ReplyTo = &tg.InputReplyToMessage{ReplyToMsgID: replyTo, TopMsgID: tp}
@@ -489,4 +581,70 @@ func loadForumTopics(ctx context.Context, api *tg.Client, cs []chat) {
 		}(&cs[i])
 	}
 	wg.Wait()
+}
+
+// quoteText is how a replied-to message is shown above the reply.
+func quoteText(from, text string) string { return from + `: "` + cut(text, 60) + `"` }
+
+// fillQuotes looks up, in one request, the messages that lines reply to but that are not among the lines
+// themselves (older ones), so the reply can still show who and what it answers. Best effort: on any error
+// the reply is shown without it.
+func fillQuotes(ctx context.Context, api *tg.Client, p tg.InputPeerClass, ls []line) {
+	have := make(map[int]bool, len(ls))
+	for _, l := range ls {
+		have[l.id] = true
+	}
+	var ids []tg.InputMessageClass
+	for _, l := range ls {
+		if l.replyTo != 0 && !have[l.replyTo] && len(ids) < 100 {
+			have[l.replyTo] = true
+			ids = append(ids, &tg.InputMessageID{ID: l.replyTo})
+		}
+	}
+	if len(ids) == 0 {
+		return
+	}
+	res, err := getMessages(ctx, api, p, ids)
+	found := map[int]string{}
+	for _, t := range linesOf(res) {
+		if !t.event {
+			found[t.id] = quoteText(t.from, t.text)
+		}
+	}
+	if err != nil {
+		return
+	}
+	for i := range ls {
+		if ls[i].replyTo != 0 {
+			ls[i].quote = found[ls[i].replyTo]
+		}
+	}
+}
+
+// getMessages reads messages of a chat by id.
+func getMessages(ctx context.Context, api *tg.Client, p tg.InputPeerClass, ids []tg.InputMessageClass) (tg.MessagesMessagesClass, error) {
+	if ch, ok := p.(*tg.InputPeerChannel); ok {
+		return api.ChannelsGetMessages(ctx, &tg.ChannelsGetMessagesRequest{
+			Channel: &tg.InputChannel{ChannelID: ch.ChannelID, AccessHash: ch.AccessHash}, ID: ids})
+	}
+	return api.MessagesGetMessages(ctx, ids)
+}
+
+// linesOf converts the messages of an answer to lines, in the order the server gave them (newest first).
+func linesOf(res tg.MessagesMessagesClass) []line {
+	mm, ok := res.(tg.ModifiedMessagesMessages)
+	if !ok {
+		return nil
+	}
+	chats := tg.ChatClassArray(mm.GetChats())
+	ent := peer.NewEntities(tg.UserClassArray(mm.GetUsers()).UserToMap(), chats.ChatToMap(), chats.ChannelToMap())
+	var out []line
+	for _, mc := range mm.GetMessages() {
+		if nm, ok := mc.AsNotEmpty(); ok {
+			if l, ok := toLine(nm, ent); ok {
+				out = append(out, l)
+			}
+		}
+	}
+	return out
 }

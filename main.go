@@ -301,11 +301,13 @@ func run(ctx context.Context) error {
 		ctx, cancel := context.WithCancel(ctx)
 		defer cancel()
 		cfg := loadConfig()
-		switch cfg.images { // BONAGRAM_IMAGES=kitty|blocks overrides the terminal guess
+		switch cfg.images { // BONAGRAM_IMAGES=kitty|iterm|sixel|blocks overrides the terminal guess
 		case "kitty":
-			kitty = true
+			kitty, rawProto = true, ""
+		case "iterm", "sixel":
+			kitty, rawProto = false, cfg.images
 		case "blocks":
-			kitty = false
+			kitty, rawProto = false, ""
 		}
 		mdl := newModel(ctx, client.API(), events, cfg, loadSide())
 		if marker := filepath.Join(configDir(), "help-seen"); fileMissing(marker) {
@@ -332,7 +334,7 @@ func run(ctx context.Context) error {
 			return leak.filter(m, msg)
 		}
 		p := tea.NewProgram(mdl, tea.WithFPS(cfg.fps), tea.WithFilter(filter),
-			tea.WithOutput(lockedOut{os.Stdout}), tea.WithAltScreen(), tea.WithMouseCellMotion(),
+			tea.WithOutput(lockedOut{os.Stdout}), tea.WithAltScreen(), tea.WithMouseAllMotion(),
 			tea.WithReportFocus(), tea.WithContext(ctx))
 		done := make(chan error, 1)
 		go func() {

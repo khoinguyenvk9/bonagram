@@ -12,13 +12,21 @@ import (
 const browseKeys = "↑↓ chọn   Enter mở/trả lời   c chép   e sửa   d xoá   r reaction   f chuyển tiếp   o link   m @mention   Esc thoát"
 
 var actionVerb = map[string]string{
-	"edit": "sửa tin", "delete": "xoá tin", "react": "thả reaction", "forward": "chuyển tiếp", "file": "gửi tệp",
+	"edit": "sửa tin", "delete": "xoá tin", "react": "thả reaction", "forward": "chuyển tiếp", "file": "gửi tệp", "geo": "gửi vị trí",
 }
 
 // mine: a message of yours (in Saved Messages all of them are).
 func (m *model) mine(l line, c *chat) bool { return l.out || (m.selfKey != "" && c.key == m.selfKey) }
 
 // rawText is the text of a message as Telegram has it (a line we just sent has no server copy yet).
+// editDraft is what goes into the input box to edit a message: its text with the formatting as marks.
+func editDraft(l line) string {
+	if l.msg != nil && len(l.msg.Entities) > 0 {
+		return toMarkdown(l.msg)
+	}
+	return rawText(l)
+}
+
 func rawText(l line) string {
 	if l.msg != nil {
 		return l.msg.Message
@@ -81,7 +89,7 @@ func (m *model) actionKey(s string, l line) (tea.Cmd, bool) {
 		m.stash, m.edit = m.in.Value(), &cp
 		m.browse = false
 		m.in.Focus()
-		m.in.SetValue(rawText(l))
+		m.in.SetValue(editDraft(l))
 		m.in.CursorEnd()
 		m.layout()
 		m.render()
@@ -121,7 +129,7 @@ func (m *model) actionKey(s string, l line) (tea.Cmd, bool) {
 			m.lkIdx = (m.lkIdx + 1) % len(links)
 		}
 		u := links[m.lkIdx]
-		if err := openExternal(u); err != nil {
+		if err := openURL(u); err != nil {
 			return m.toastCmd("không mở được: " + err.Error()), true
 		}
 		note := "Đã mở " + u
@@ -129,6 +137,12 @@ func (m *model) actionKey(s string, l line) (tea.Cmd, bool) {
 			note += " (" + strconv.Itoa(m.lkIdx+1) + "/" + strconv.Itoa(len(links)) + ", bấm o để mở link kế)"
 		}
 		return m.toastCmd(note), true
+	case "l":
+		links := linksOf(l.msg)
+		if len(links) == 0 {
+			return m.toastCmd("Tin này không có link"), true
+		}
+		return copyCmd(strings.Join(links, "\n"), "link"), true
 	case "m":
 		ls := m.lines()
 		for j := m.bsel - 1; j >= 0; j-- {
@@ -191,7 +205,7 @@ func (m *model) finishEdit(text string) tea.Cmd {
 	m.in.CursorEnd()
 	m.layout()
 	m.render()
-	if l == nil || c == nil || text == strings.TrimSpace(rawText(*l)) {
+	if l == nil || c == nil || text == strings.TrimSpace(editDraft(*l)) {
 		return nil
 	}
 	return m.act("edit", m.mk(), l.id, text, func() error { return editText(ctx, api, c.peer, l.id, text) })
@@ -235,14 +249,15 @@ func (m *model) onAct(a actMsg) tea.Cmd {
 	switch a.kind {
 	case "edit":
 		if i >= 0 {
+			plain, fmts := parseMarkdown(a.text)
 			tag := ""
 			if ls[i].msg != nil {
 				cp := *ls[i].msg
-				cp.Message, cp.Entities = a.text, nil
+				cp.Message, cp.Entities = plain, fmts
 				ls[i].msg, tag = &cp, mediaTag(cp.Media)
 			}
-			ls[i].segs = nil
-			ls[i].text = strings.TrimSpace(clean(a.text) + " " + tag)
+			ls[i].segs = segments(plain, fmts)
+			ls[i].text = strings.TrimSpace(clean(plain) + " " + tag)
 			if a.mk == m.mk() {
 				m.render()
 			}
@@ -274,7 +289,7 @@ func (m *model) onAct(a actMsg) tea.Cmd {
 		return m.toastCmd(note)
 	case "forward":
 		return tea.Batch(m.toastCmd("Đã chuyển tiếp tới "+a.text), m.refresh(a.key))
-	case "file":
+	case "file", "geo":
 		return tea.Batch(m.toastCmd("Đã gửi "+a.text), m.refresh(a.key))
 	}
 	return nil

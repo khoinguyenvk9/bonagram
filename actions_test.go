@@ -20,20 +20,37 @@ import (
 
 // recorder is a Telegram client that answers every request with an empty success and remembers it.
 type recorder struct {
-	mu    sync.Mutex
-	calls []bin.Encoder
-	reply tg.UpdatesClass // what sending a message answers with
+	mu       sync.Mutex
+	calls    []bin.Encoder
+	reply    tg.UpdatesClass   // what sending a message answers with
+	users    []tg.UserClass    // the members of a group
+	msgs     []tg.MessageClass // what looking up messages by id answers
+	file     []byte            // what downloading a file answers
+	fileErrs []error           // errors for the next downloads, one each
 }
 
 func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, in)
+	if _, ok := in.(*tg.UploadGetFileRequest); ok && len(r.fileErrs) > 0 {
+		err := r.fileErrs[0]
+		r.fileErrs = r.fileErrs[1:]
+		return err
+	}
 	switch box := out.(type) {
 	case *tg.UpdatesBox:
 		box.Updates = r.reply
 	case *tg.MessageMediaBox: // an uploaded photo or document, as the server stores it
 		box.MessageMedia = &tg.MessageMediaPhoto{Photo: &tg.Photo{ID: 1}}
+	case *tg.ChannelsChannelParticipantsBox:
+		box.ChannelParticipants = &tg.ChannelsChannelParticipants{Users: r.users}
+	case *tg.MessagesChatFull:
+		box.Users = r.users
+	case *tg.MessagesMessagesBox:
+		box.Messages = &tg.MessagesMessages{Messages: r.msgs, Users: r.users}
+	case *tg.UploadFileBox:
+		box.File = &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: r.file}
 	case *tg.BoolBox:
 		box.Bool = &tg.BoolTrue{} // file parts are accepted
 	}
@@ -81,8 +98,30 @@ func (a *actionModel) run(c tea.Cmd) {
 	if c == nil {
 		return
 	}
-	if msg := c(); msg != nil {
+	switch msg := c().(type) {
+	case nil:
+	case tea.BatchMsg: // what tea.Batch returns: run each command
+		for _, sub := range msg {
+			a.run(sub)
+		}
+	default:
 		a.send(msg)
+	}
+}
+
+// runAll also runs the commands that the results of the commands ask for (a pause, then a request, then its answer).
+func (a *actionModel) runAll(c tea.Cmd) {
+	if c == nil {
+		return
+	}
+	switch msg := c().(type) {
+	case nil:
+	case tea.BatchMsg:
+		for _, sub := range msg {
+			a.runAll(sub)
+		}
+	default:
+		a.runAll(a.send(msg))
 	}
 }
 
@@ -705,5 +744,92 @@ func TestFileButtonClick(t *testing.T) {
 	a2.send(tea.MouseMsg{X: x0 - 3, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	if a2.m().picking {
 		t.Fatal("a click left of the button is just focusing the input")
+	}
+}
+
+func newGroupModel(t *testing.T, key string, p tg.InputPeerClass) *actionModel {
+	t.Helper()
+	rec := &recorder{users: []tg.UserClass{
+		&tg.User{ID: 11, AccessHash: 111, FirstName: "Khôi", LastName: "Nguyễn", Username: "khoinv"},
+		&tg.User{ID: 12, AccessHash: 222, FirstName: "Hà"},
+		&tg.User{ID: 13, FirstName: "Me", Self: true},
+	}}
+	m := newTestModel(t)
+	m.api = tg.NewClient(rec)
+	a := &actionModel{mm: m, rec: rec}
+	a.send(tea.WindowSizeMsg{Width: 120, Height: 30})
+	a.send(chatsMsg{chats: []chat{{key: key, title: "Nhóm", peer: p}}})
+	a.send(tea.KeyMsg{Type: tea.KeyCtrlN})
+	return a
+}
+
+func (a *actionModel) typeText(s string) {
+	for _, r := range s {
+		a.runAll(a.send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})) // the pause, the request, the answer
+	}
+}
+
+func TestMentionSuggestionsInSupergroup(t *testing.T) {
+	a := newGroupModel(t, "c9", &tg.InputPeerChannel{ChannelID: 9, AccessHash: 1})
+	a.typeText("chào @kh")
+	m := a.m()
+	if len(m.mc) != 2 || !strings.Contains(m.barText(), "Khôi Nguyễn (@khoinv)") || strings.Contains(m.barText(), "Me") {
+		t.Fatalf("suggestions: %+v bar=%q", m.mc, m.barText())
+	}
+	req, ok := a.rec.last(t).(*tg.ChannelsGetParticipantsRequest)
+	if !ok || req.Filter.(*tg.ChannelParticipantsSearch).Q != "kh" {
+		t.Fatalf("the server should be asked to search \"kh\": %+v", a.rec.last(t))
+	}
+	a.send(tea.KeyMsg{Type: tea.KeyTab}) // the first one: has a username
+	if got := a.m().in.Value(); got != "chào @khoinv " || len(a.m().mc) != 0 || a.m().barText() != "" {
+		t.Fatalf("input after the pick: %q bar=%q", got, a.m().barText())
+	}
+	// somebody without a username goes in as an entity
+	a.typeText("@")
+	a.send(tea.KeyMsg{Type: tea.KeyDown})
+	a.send(tea.KeyMsg{Type: tea.KeyEnter}) // picks Hà, does not send
+	if got := a.m().in.Value(); got != "chào @khoinv @Hà " {
+		t.Fatalf("input: %q", got)
+	}
+	a.typeText("ơi")
+	a.run(a.send(tea.KeyMsg{Type: tea.KeyEnter}))
+	req2, ok := a.rec.last(t).(*tg.MessagesSendMessageRequest)
+	if !ok || req2.Message != "chào @khoinv @Hà ơi" || len(req2.Entities) != 1 {
+		t.Fatalf("send: %+v", a.rec.last(t))
+	}
+	e := req2.Entities[0].(*tg.InputMessageEntityMentionName)
+	if e.Offset != 13 || e.Length != 3 || e.UserID.(*tg.InputUser).UserID != 12 {
+		t.Fatalf("entity: %+v", e)
+	}
+}
+
+func TestMentionInBasicGroupAsksOnce(t *testing.T) {
+	a := newGroupModel(t, "g5", &tg.InputPeerChat{ChatID: 5})
+	a.typeText("@ha")
+	if len(a.m().mc) != 1 || a.m().mc[0].name != "Hà" {
+		t.Fatalf("local filter: %+v", a.m().mc)
+	}
+	n := a.rec.count()
+	a.typeText("x")
+	if a.rec.count() != n || len(a.m().mc) != 0 {
+		t.Fatal("a basic group's members must be asked for only once")
+	}
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	if len(a.m().mc) != 0 || a.m().barText() != "" {
+		t.Fatal("esc closes the suggestions")
+	}
+}
+
+func TestMentionNotInPrivateChatOrEmail(t *testing.T) {
+	a := newActionModel(t)
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	a.typeText("@kh")
+	if a.rec.count() != 0 || len(a.m().mc) != 0 {
+		t.Fatal("no suggestions in a private chat")
+	}
+	g := newGroupModel(t, "c9", &tg.InputPeerChannel{ChannelID: 9, AccessHash: 1})
+	g.typeText("a@kh")
+	if g.rec.count() != 0 {
+		t.Fatal("an e-mail address is not a mention")
 	}
 }
