@@ -56,7 +56,7 @@ func (m *model) paintContent() {
 			}
 		}
 	}
-	m.vp.SetContent(strings.Join(rows, "\n"))
+	m.setContent(rows)
 }
 
 // selText is the plain text under the selection, one line per row. Own messages are pushed to the right

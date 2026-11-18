@@ -142,8 +142,8 @@ func TestClickOnFileDoesNotDownload(t *testing.T) {
 func TestFileIsDrawnAsACard(t *testing.T) {
 	msg := docMsg(7, "Báo cáo quý 3.pdf", "application/pdf", 2400000)
 	rows := fileCard(msg, 50)
-	if len(rows) != 4 {
-		t.Fatalf("a card has 4 rows, got %d", len(rows))
+	if len(rows) != 1 || ansi.StringWidth(rows[0]) > 50 {
+		t.Fatalf("a card is one row within the width, got %d", len(rows))
 	}
 	w := ansi.StringWidth(rows[0])
 	for _, r := range rows {
@@ -152,7 +152,7 @@ func TestFileIsDrawnAsACard(t *testing.T) {
 		}
 	}
 	text := ansi.Strip(strings.Join(rows, "\n"))
-	for _, want := range []string{"PDF", "Báo cáo quý 3.pdf", "2.3 MB"} {
+	for _, want := range []string{"PDF", "Báo cáo quý 3.pdf", "2.3 MB", "tải"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("missing %q in\n%s", want, text)
 		}
@@ -163,7 +163,7 @@ func TestFileIsDrawnAsACard(t *testing.T) {
 	// in the message view the card replaces the one-line label
 	a := fileModel(t, msg)
 	v := plainView(a.m())
-	if !strings.Contains(v, "╭") || !strings.Contains(v, "Báo cáo quý 3.pdf") || strings.Contains(v, "[file]") {
+	if !strings.Contains(v, " PDF ") || !strings.Contains(v, "Báo cáo quý 3.pdf") || strings.Contains(v, "[file]") {
 		t.Fatalf("the view should show the card:\n%s", v)
 	}
 }

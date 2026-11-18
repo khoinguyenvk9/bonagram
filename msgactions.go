@@ -13,6 +13,7 @@ const browseKeys = "↑↓ chọn   Enter mở/trả lời   c chép   e sửa  
 
 var actionVerb = map[string]string{
 	"edit": "sửa tin", "delete": "xoá tin", "react": "thả reaction", "forward": "chuyển tiếp", "file": "gửi tệp", "geo": "gửi vị trí",
+	"pin": "ghim tin", "mute": "đổi thông báo", "delchat": "xoá chat", "pinchat": "ghim chat",
 }
 
 // mine: a message of yours (in Saved Messages all of them are).
@@ -66,11 +67,44 @@ func (m *model) pinCmd(c chat, mk string) tea.Cmd {
 		tp = c.topic
 	}
 	return func() tea.Msg {
-		text, err := loadPinned(ctx, api, c.peer, tp)
+		list, err := loadPinned(ctx, api, c.peer, tp)
 		if err != nil {
 			return nil // the pinned line is a bonus: say nothing when it can not be read
 		}
-		return pinMsg{mk, text}
+		return pinMsg{mk, list}
+	}
+}
+
+// jumpPin shows the pinned message the row names and moves the row on to the next older one, like Telegram.
+// One that is not loaded is opened with the messages around it (an old stretch, Esc goes back to the latest).
+func (m *model) jumpPin() tea.Cmd {
+	mk, c := m.mk(), m.curChat()
+	ps := m.pins[mk]
+	if c == nil || len(ps) == 0 {
+		return nil
+	}
+	p := ps[min(m.pinAt[mk], len(ps)-1)]
+	m.pinAt[mk] = (m.pinAt[mk] + 1) % len(ps)
+	return m.jumpTo(p.id)
+}
+
+// jumpTo shows message id of the open view highlighted: at once when it is loaded, else with the messages
+// around it (an old stretch; Esc goes back to the latest). Used by the pinned row and by reply quotes.
+func (m *model) jumpTo(id int) tea.Cmd {
+	if i := indexOfID(m.lines(), id); i >= 0 {
+		return m.startBrowse(i)
+	}
+	c := m.curChat()
+	if c == nil || m.api == nil {
+		return nil
+	}
+	ctx, api, peer, mk, key, tp := m.ctx, m.api, c.peer, m.mk(), c.key, 0
+	if c.forum {
+		tp = c.topic
+	}
+	return func() tea.Msg {
+		ls, err := loadAround(ctx, api, peer, tp, id)
+		return aroundMsg{mk: mk, key: key, id: id, lines: ls, err: err, jump: true}
 	}
 }
 
@@ -217,7 +251,7 @@ func (m *model) forwardTo(vis []int) tea.Cmd {
 	if l == nil || from == nil || m.sel >= len(vis) {
 		return nil
 	}
-	to, src, ctx, api := m.chats[vis[m.sel]], from.peer, m.ctx, m.api
+	to, src, ctx, api := m.chats[m.pick(vis[m.sel])], from.peer, m.ctx, m.api
 	m.fwd = nil
 	m.setPrompt("")
 	m.stopSearch()
@@ -291,6 +325,74 @@ func (m *model) onAct(a actMsg) tea.Cmd {
 		return tea.Batch(m.toastCmd("Đã chuyển tiếp tới "+a.text), m.refresh(a.key))
 	case "file", "geo":
 		return tea.Batch(m.toastCmd("Đã gửi "+a.text), m.refresh(a.key))
+	case "pin": // rsOK = it was an unpin
+		note := "Đã ghim tin"
+		if a.rsOK {
+			note = "Đã bỏ ghim"
+		}
+		cmds := []tea.Cmd{m.toastCmd(note)}
+		if c := m.curChat(); c != nil && c.key == a.key {
+			cmds = append(cmds, m.pinCmd(*c, a.mk))
+		}
+		return tea.Batch(cmds...)
+	case "mute": // rsOK = muted now
+		if i := m.index(a.key); i >= 0 {
+			m.chats[i].muted = a.rsOK
+		}
+		if a.rsOK {
+			return m.toastCmd("Đã tắt thông báo " + a.text)
+		}
+		return m.toastCmd("Đã bật thông báo " + a.text)
+	case "delchat":
+		return m.dropChat(a.key, a.text)
+	case "pinchat": // rsOK = pinned now
+		m.repin(a.key, a.rsOK)
+		if a.rsOK {
+			return m.toastCmd("Đã ghim " + a.text)
+		}
+		return m.toastCmd("Đã bỏ ghim " + a.text)
 	}
 	return nil
+}
+
+// repin moves a chat after (un)pinning it: a newly pinned chat goes to the top, like in Telegram; an unpinned
+// one goes back among the others by the time of its last message.
+func (m *model) repin(key string, pinned bool) {
+	i := m.index(key)
+	if i < 0 {
+		return
+	}
+	c := m.chats[i]
+	c.pinned = pinned
+	rest := append(m.chats[:i:i], m.chats[i+1:]...)
+	at := 0
+	if !pinned {
+		for at < len(rest) && (rest[at].pinned || rest[at].date > c.date) {
+			at++
+		}
+	}
+	m.chats = append(rest[:at:at], append([]chat{c}, rest[at:]...)...)
+	m.fixTop()
+}
+
+// dropChat takes a deleted or left chat out of the list and its messages out of the cache; when it was open
+// the view goes back to "pick a chat".
+func (m *model) dropChat(key, title string) tea.Cmd {
+	if i := m.index(key); i >= 0 {
+		m.chats = append(m.chats[:i:i], m.chats[i+1:]...)
+	}
+	for mk := range m.msgs {
+		if mk == key || strings.HasPrefix(mk, key+"#") {
+			delete(m.msgs, mk)
+		}
+	}
+	if m.cur == key {
+		m.cur, m.browse, m.reply, m.edit = "", false, nil, nil
+		m.in.SetValue("")
+		m.layout()
+		m.render()
+		m.startSearch(true) // nothing open: back to picking a chat, as at start
+	}
+	m.fixTop()
+	return m.toastCmd("Đã xoá " + title + " khỏi danh sách")
 }

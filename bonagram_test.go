@@ -256,7 +256,7 @@ func TestForumTopics(t *testing.T) {
 	if mm.(model).chats[0].topics != nil {
 		t.Fatal("topics are loaded lazily")
 	}
-	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 1}, {7, "Kèo", 2}}})
+	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 1, 0}, {7, "Kèo", 2, 0}}})
 	m := mm.(model)
 	if m.chats[0].topic != 1 || mkFor(&m.chats[0], 1) != "c1#1" {
 		t.Fatalf("first topic should open: %+v", m.chats[0])
@@ -369,7 +369,7 @@ func TestCursorFollowsInput(t *testing.T) {
 	send(tea.WindowSizeMsg{Width: 100, Height: 24})
 	send(chatsMsg{chats: []chat{{key: "u1", title: "Đạt", peer: &tg.InputPeerUser{UserID: 1}}}})
 	mm.View()
-	if p := realCursor.Load(); p == nil || p.row != 1 || p.col != 4 { // empty search box: margin 2, border, prompt
+	if p := realCursor.Load(); p == nil || p.row != 4 || p.col != 4 { // empty search field (row 4): margin 2, padding, prompt
 		t.Fatalf("search cursor: %+v", p)
 	}
 	send(tea.KeyMsg{Type: tea.KeyCtrlN})
@@ -377,7 +377,7 @@ func TestCursorFollowsInput(t *testing.T) {
 		send(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
 	}
 	mm.View()
-	// 24 rows: keys bar = row 23, compose box = rows 20..22, text row 21; column = side 36 + divider 1 + margin 2 + border 1 + space 1 + 5 chars
+	// 24 rows: hint row = row 23, compose box = rows 20..22, text row 21; column = side 36 + divider 1 + margin 2 + border 1 + space 1 + 5 chars
 	if p := realCursor.Load(); p == nil || p.row != 21 || p.col != 36+1+2+1+1+5 {
 		t.Fatalf("input cursor: %+v", p)
 	}
@@ -582,7 +582,7 @@ func TestReactionsLive(t *testing.T) {
 		t.Fatal("a redraw should be pending")
 	}
 	send(renderTick{})
-	if v := ansi.Strip(mm.View()); !strings.Contains(v, "👍 3  ❤ 1") {
+	if v := ansi.Strip(mm.View()); !strings.Contains(v, " 👍 3   ❤ 1 ") { // chips
 		t.Fatalf("reaction line missing:\n%s", v)
 	}
 	if mm.(model).redraw {
@@ -776,7 +776,7 @@ func TestTinyWindows(t *testing.T) {
 					{key: "u2", title: "Lan", peer: &tg.InputPeerUser{UserID: 2}},
 				}})
 				send(tea.KeyMsg{Type: tea.KeyCtrlN})
-				send(topicsMsg{key: "c1", topics: []topic{{1, "General", 0}, {7, "Một topic có tên rất dài", 3}}})
+				send(topicsMsg{key: "c1", topics: []topic{{1, "General", 0, 0}, {7, "Một topic có tên rất dài", 3, 0}}})
 				send(histMsg{mk: "c1#1", key: "c1", lines: []line{codeMsg(1, false, "x := 1\nreturn"), codeMsg(2, true, "ok")}})
 				send(tea.KeyMsg{Type: tea.KeyCtrlR})
 				send(tea.KeyMsg{Type: tea.KeyCtrlB})
@@ -818,13 +818,13 @@ func TestForumUnreadIsSumOfTopics(t *testing.T) {
 		t.Fatal("before the topics are known the forum's own count is all there is")
 	}
 	send(tea.KeyMsg{Type: tea.KeyCtrlN})
-	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 0}, {4, "Nhóm Dev", 0}}})
+	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 0, 0}, {4, "Nhóm Dev", 0, 0}}})
 	if m := mm.(model); m.chats[0].unread != 0 || m.windowTitle() != "bonagram" {
 		t.Fatalf("every topic is read: badge must go, unread=%d title=%q", m.chats[0].unread, m.windowTitle())
 	}
 
 	// with unread topics the badge counts them and falls as each topic is read
-	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 2}, {4, "Nhóm Dev", 3}}})
+	send(topicsMsg{key: "c1", topics: []topic{{1, "General", 2, 0}, {4, "Nhóm Dev", 3, 0}}})
 	if mm.(model).chats[0].unread != 5 {
 		t.Fatalf("unread = %d, want 5", mm.(model).chats[0].unread)
 	}
@@ -846,11 +846,11 @@ func TestReloadKeepsSelectedTopic(t *testing.T) {
 		return chat{key: "c1", title: "F", forum: true, topics: topics, peer: &tg.InputPeerChannel{ChannelID: 1}}
 	}
 	send(tea.WindowSizeMsg{Width: 110, Height: 24})
-	c := forum([]topic{{1, "General", 0}, {7, "Kèo", 0}})
+	c := forum([]topic{{1, "General", 0, 0}, {7, "Kèo", 0, 0}})
 	c.topic = 7
 	send(chatsMsg{chats: []chat{c}})
 	// a reload that already carries topics keeps the topic the user is in, or falls back to the first
-	fresh := forum([]topic{{1, "General", 4}, {7, "Kèo", 1}})
+	fresh := forum([]topic{{1, "General", 4, 0}, {7, "Kèo", 1, 0}})
 	fresh.topic = 1
 	send(chatsMsg{chats: []chat{fresh}})
 	if m := mm.(model); m.chats[0].topic != 7 || m.chats[0].topics[0].unread != 4 {

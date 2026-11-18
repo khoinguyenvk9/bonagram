@@ -8,6 +8,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/binary"
+	"errors"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -144,25 +146,35 @@ func shellPath(s string) string {
 }
 
 // loadPinned returns the newest pinned message of the chat (or forum topic tp > 1) as one line, "" if none.
-func loadPinned(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp int) (string, error) {
-	req := &tg.MessagesSearchRequest{Peer: p, Filter: &tg.InputMessagesFilterPinned{}, Limit: 1}
+// pinned is one pinned message: its id (to jump to it) and its text as one line.
+type pinned struct {
+	id   int
+	text string
+}
+
+const maxPins = 20
+
+// loadPinned reads the pinned messages of a chat (of forum topic tp > 1), newest first.
+func loadPinned(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp int) ([]pinned, error) {
+	req := &tg.MessagesSearchRequest{Peer: p, Filter: &tg.InputMessagesFilterPinned{}, Limit: maxPins}
 	if tp > 1 {
 		req.TopMsgID = tp
 	}
 	res, err := api.MessagesSearch(ctx, req)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	mm, ok := res.(tg.ModifiedMessagesMessages)
 	if !ok {
-		return "", nil
+		return nil, nil
 	}
+	var out []pinned
 	for _, x := range mm.GetMessages() {
 		if m, ok := x.(*tg.Message); ok {
-			return flat(clean(m.Message) + " " + mediaTag(m.Media)), nil
+			out = append(out, pinned{m.ID, flat(clean(m.Message) + " " + mediaTag(m.Media))})
 		}
 	}
-	return "", nil
+	return out, nil
 }
 
 // webURL returns s as an http(s) address, adding "https://" to one without a scheme; ok is false for anything
@@ -233,4 +245,65 @@ func linksOf(m *tg.Message) []string {
 		out = append(out, mapURL(lat, long))
 	}
 	return out
+}
+
+// pinMessage pins or unpins message id. silent: the members get no notification; oneSide: in a private chat,
+// pinned for you only.
+func pinMessage(ctx context.Context, api *tg.Client, p tg.InputPeerClass, id int, unpin, silent, oneSide bool) error {
+	_, err := api.MessagesUpdatePinnedMessage(ctx, &tg.MessagesUpdatePinnedMessageRequest{
+		Peer: p, ID: id, Unpin: unpin, Silent: silent, PmOneside: oneSide,
+	})
+	return err
+}
+
+// setMuted turns the notifications of a chat off for good, or back on.
+func setMuted(ctx context.Context, api *tg.Client, p tg.InputPeerClass, muted bool) error {
+	until := 0
+	if muted {
+		until = math.MaxInt32 // "forever", as the official apps send it
+	}
+	_, err := api.AccountUpdateNotifySettings(ctx, &tg.AccountUpdateNotifySettingsRequest{
+		Peer: &tg.InputNotifyPeer{Peer: p}, Settings: tg.InputPeerNotifySettings{MuteUntil: until},
+	})
+	return err
+}
+
+// deleteChat takes a chat out of your list. A private chat loses its history, on your side only or for both
+// people (revoke); a supergroup or channel is left; a basic group is left and its history dropped on your side.
+func deleteChat(ctx context.Context, api *tg.Client, p tg.InputPeerClass, revoke bool) error {
+	switch v := p.(type) {
+	case *tg.InputPeerChannel:
+		_, err := api.ChannelsLeaveChannel(ctx, &tg.InputChannel{ChannelID: v.ChannelID, AccessHash: v.AccessHash})
+		return err
+	case *tg.InputPeerChat:
+		if _, err := api.MessagesDeleteChatUser(ctx, &tg.MessagesDeleteChatUserRequest{ChatID: v.ChatID, UserID: &tg.InputUserSelf{}}); err != nil {
+			return err
+		}
+		_ = clearHistory(ctx, api, p, false) // already out of the group: the leftover dialog is best effort
+		return nil
+	}
+	return clearHistory(ctx, api, p, revoke)
+}
+
+// clearHistory deletes the whole history; the server works in batches and says where it stopped.
+func clearHistory(ctx context.Context, api *tg.Client, p tg.InputPeerClass, revoke bool) error {
+	for range 100 {
+		res, err := api.MessagesDeleteHistory(ctx, &tg.MessagesDeleteHistoryRequest{Peer: p, Revoke: revoke})
+		if err != nil {
+			return err
+		}
+		if res.Offset <= 0 {
+			return nil
+		}
+	}
+	return nil
+}
+
+// pinChat pins a chat at the top of the list, or unpins it.
+func pinChat(ctx context.Context, api *tg.Client, p tg.InputPeerClass, pinned bool) error {
+	_, err := api.MessagesToggleDialogPin(ctx, &tg.MessagesToggleDialogPinRequest{Pinned: pinned, Peer: &tg.InputDialogPeer{Peer: p}})
+	if tgerr.Is(err, "PINNED_DIALOGS_TOO_MUCH") {
+		return errors.New("đã ghim tối đa số chat Telegram cho phép (5 với tài khoản thường), bỏ ghim một chat khác trước")
+	}
+	return err
 }

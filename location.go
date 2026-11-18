@@ -41,7 +41,7 @@ func geoOf(m *tg.Message) (lat, long float64, title, address string, live, ok bo
 	return p.Lat, p.Long, title, address, live, true
 }
 
-// geoCard draws a location as a card whose second row is a link to the map; nil when the message has none.
+// geoCard draws a location as a one-line card ending in a link to the map; nil when the message has none.
 func geoCard(m *tg.Message, maxW int, hot string) []string {
 	lat, long, title, address, live, ok := geoOf(m)
 	if !ok {
@@ -58,31 +58,19 @@ func geoCard(m *tg.Message, maxW int, hot string) []string {
 		badge = "TRỰC TIẾP"
 	}
 	url := mapURL(lat, long)
-	label := "Mở bản đồ ↗"
-	w := min(maxW, cardMax, max(cardMin, ansi.StringWidth(badge)+ansi.StringWidth(title)+7))
-	bw := ansi.StringWidth(badge) + 2
-	field := w - 4 - bw - 1
-	if field < 6 {
+	if maxW < ansi.StringWidth(badge)+16 {
 		return nil
 	}
 	link := fgSeq(cLink)
 	if url == hot {
 		link += "\x1b[4m"
 	}
-	edge := fg(cBorder)
-	line := func(inner string) string { return edge.Render("│") + " " + inner + " " + edge.Render("│") }
-	pad := strings.Repeat(" ", bw+1)
-	rows := []string{
-		edge.Render("╭" + strings.Repeat("─", w-2) + "╮"),
-		line(sgr(cBg, badgeColours["sheet"]) + "\x1b[1m " + badge + " \x1b[0m " + fg(cFg).Bold(true).Render(fit(title, field))),
-	}
+	main := fg(cFg).Bold(true).Render(title)
 	if coords != title {
-		rows = append(rows, line(pad+fg(cMuted).Render(fit(coords, field))))
+		main += fg(cMuted).Render("  " + coords)
 	}
-	rows = append(rows,
-		line(pad+linkSeq("g"+strconv.Itoa(m.ID), url)+link+label+"\x1b[0m"+linkEnd+strings.Repeat(" ", max(field-ansi.StringWidth(label), 0))),
-		edge.Render("╰"+strings.Repeat("─", w-2)+"╯"))
-	return rows
+	end := "  " + linkSeq("g"+strconv.Itoa(m.ID), url) + link + "Mở bản đồ ↗" + "\x1b[0m" + linkEnd
+	return []string{cardRow(badge, badgeColours["sheet"], main, end, maxW)}
 }
 
 var coordRe = regexp.MustCompile(`(-?\d{1,3}(?:\.\d+)?)\s*[,; ]\s*(-?\d{1,3}(?:\.\d+)?)`)

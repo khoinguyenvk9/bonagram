@@ -26,7 +26,7 @@ import (
 const (
 	albumMax   = 10   // files in one Telegram album
 	captionMax = 1024 // characters of a caption (2048 with Premium; the lower limit is used)
-	btnW       = 7    // columns of the [Tệp] button inside the input box, 0 when the box is too narrow
+	btnW       = 11   // columns of the attach and send buttons inside the input box, 0 when the box is too narrow
 )
 
 var photoExt = map[string]bool{".jpg": true, ".jpeg": true, ".png": true}

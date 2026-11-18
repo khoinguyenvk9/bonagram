@@ -22,11 +22,13 @@ import (
 type recorder struct {
 	mu       sync.Mutex
 	calls    []bin.Encoder
-	reply    tg.UpdatesClass   // what sending a message answers with
-	users    []tg.UserClass    // the members of a group
-	msgs     []tg.MessageClass // what looking up messages by id answers
-	file     []byte            // what downloading a file answers
-	fileErrs []error           // errors for the next downloads, one each
+	reply    tg.UpdatesClass      // what sending a message answers with
+	users    []tg.UserClass       // the members of a group
+	msgs     []tg.MessageClass    // what looking up messages by id answers
+	file     []byte               // what downloading a file answers
+	fileErrs []error              // errors for the next downloads, one each
+	found    *tg.ContactsFound    // what searching people answers
+	topics   []tg.ForumTopicClass // what listing forum topics answers
 }
 
 func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) error {
@@ -53,6 +55,12 @@ func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) er
 		box.File = &tg.UploadFile{Type: &tg.StorageFileUnknown{}, Bytes: r.file}
 	case *tg.BoolBox:
 		box.Bool = &tg.BoolTrue{} // file parts are accepted
+	case *tg.MessagesForumTopics:
+		box.Topics = r.topics
+	case *tg.ContactsFound:
+		if r.found != nil {
+			*box = *r.found
+		}
 	}
 	return nil
 }
@@ -376,7 +384,7 @@ func TestSendFileRejectsBadPaths(t *testing.T) {
 func TestPinnedRowKeepsFrame(t *testing.T) {
 	a := newActionModel(t)
 	before := a.m().msgY()
-	a.send(pinMsg{mk: "u1", text: "Quy định: không spam 😀 và không quảng cáo, đọc kỹ trước khi đăng bài vào nhóm này nhé"})
+	a.send(pinMsg{mk: "u1", list: []pinned{{6, "Quy định: không spam 😀 và không quảng cáo, đọc kỹ trước khi đăng bài vào nhóm này nhé"}}})
 	m := a.m()
 	if m.msgY() != before+1 {
 		t.Fatalf("the pinned row should push the messages down by one: %d -> %d", before, m.msgY())
@@ -714,7 +722,7 @@ func TestAttachFlow(t *testing.T) {
 	if a.rec.count() != 0 {
 		t.Fatal("staging must not send anything")
 	}
-	if !strings.Contains(m.View(), "[Tệp]") {
+	if v := ansi.Strip(m.View()); !strings.Contains(v, "Tệp") || !strings.Contains(v, "Gửi") {
 		t.Fatal("the file button is missing from the input box")
 	}
 	a.send(tea.KeyMsg{Type: tea.KeyEsc})
@@ -735,7 +743,7 @@ func TestFileButtonClick(t *testing.T) {
 	a.send(tea.KeyMsg{Type: tea.KeyEsc})
 	m := a.m()
 	x0 := m.side + 1 + 3 + max(m.vp.Width-6, 4) - m.btnW()
-	cmd := a.send(tea.MouseMsg{X: x0 + 2, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
+	cmd := a.send(tea.MouseMsg{X: x0 + m.buttonLead() + 1, Y: m.h - 3, Button: tea.MouseButtonLeft, Action: tea.MouseActionPress})
 	if cmd == nil || !a.m().picking { // the command (the dialog) is deliberately not run here
 		t.Fatal("a click on [Tệp] should open the picker")
 	}

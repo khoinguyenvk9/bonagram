@@ -1,11 +1,9 @@
 package main
 
-// A file in a message is drawn as a small card: a coloured badge with the type, the name, and the size.
+// A file in a message is drawn as a one-line card on a lighter band: a coloured badge with the type, the
+// name, the size, and the key that downloads it.
 //
-//	╭────────────────────────────────╮
-//	│  PDF   Báo cáo quý 3.pdf       │
-//	│        2.3 MB                  │
-//	╰────────────────────────────────╯
+//	 PDF  Báo cáo quý 3.pdf  2.3 MB  ⏎ tải
 
 import (
 	"path/filepath"
@@ -108,21 +106,28 @@ func fileCard(m *tg.Message, maxW int) []string {
 		detail = strings.Join(append([]string{clean(in.artist)}, parts...), " · ")
 	}
 
-	w := min(maxW, cardMax, max(cardMin, badgeW+ansi.StringWidth(title)+5))
-	if w < badgeW+8 { // no room for a card: a line of text
+	text, colour := badgeOf(in, d)
+	tail := "  " + keyName("enter") + " tải"
+	if detail != "" {
+		tail = "  " + detail + tail
+	}
+	if maxW < badgeW+12 { // no room for a card: a line of text
 		return []string{docTag(d)}
 	}
-	text, colour := badgeOf(in, d)
-	pad := badgeW - ansi.StringWidth(text)
-	badge := sgr(cBg, colour) + "\x1b[1m" + strings.Repeat(" ", pad/2) + text + strings.Repeat(" ", pad-pad/2) + "\x1b[0m"
-	field := w - 4 - badgeW - 1 // the room left for the name
-	edge := fg(cBorder)
-	line := func(inner string) string { return edge.Render("│") + " " + inner + " " + edge.Render("│") }
-	blank := strings.Repeat(" ", badgeW+1)
-	return []string{
-		edge.Render("╭" + strings.Repeat("─", w-2) + "╮"),
-		line(badge + " " + fg(cFg).Bold(true).Render(fit(title, field))),
-		line(blank + fg(cMuted).Render(fit(detail, field))),
-		edge.Render("╰" + strings.Repeat("─", w-2) + "╯"),
+	return []string{cardRow(text, colour, fg(cFg).Bold(true).Render(title), fg(cMuted).Render(tail), maxW)}
+}
+
+// cardRow is a one-line card: the badge, the main text (cut to fit) and the muted end, on the card band.
+func cardRow(badge, colour, main, end string, maxW int) string {
+	pad := max(badgeW-ansi.StringWidth(badge), 2)
+	b := sgr(cBg, colour) + "\x1b[1m" + strings.Repeat(" ", pad/2) + badge + strings.Repeat(" ", pad-pad/2) + "\x1b[0m"
+	room := maxW - ansi.StringWidth(b) - 2 - ansi.StringWidth(end) - 1
+	if room < 6 { // too narrow for the end: the main text alone
+		end, room = "", maxW-ansi.StringWidth(b)-3
 	}
+	if ansi.StringWidth(main) > room {
+		main = ansi.Truncate(main, max(room, 1), "…")
+	}
+	row := b + "  " + main + end + " "
+	return paint(row, ansi.StringWidth(row), cFg, cBoost)
 }

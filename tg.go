@@ -23,9 +23,10 @@ const (
 )
 
 type topic struct {
-	id     int
-	title  string
-	unread int
+	id      int
+	title   string
+	unread  int
+	readOut int // own messages up to this id were read (✓✓)
 }
 
 type chat struct {
@@ -36,6 +37,7 @@ type chat struct {
 	last     string
 	date     int
 	unread   int
+	readOut  int // own messages up to this id were read by the other side (✓✓)
 	muted    bool
 	pinned   bool // pinned in the chat list: stays above the others, whatever their activity
 	forum    bool
@@ -447,7 +449,7 @@ func loadChats(ctx context.Context, api *tg.Client) ([]chat, map[string]bool, []
 		user, forum := peerExtra(el.Entities, d.Peer)
 		c := chat{
 			key: key, title: peerTitle(el.Entities, d.Peer), username: user, peer: el.Peer, forum: forum,
-			unread: d.UnreadCount, muted: d.NotifySettings.MuteUntil > now, pinned: d.Pinned,
+			unread: d.UnreadCount, readOut: d.ReadOutboxMaxID, muted: d.NotifySettings.MuteUntil > now, pinned: d.Pinned,
 		}
 		if m, ok := el.Last.(*tg.Message); ok {
 			c.last, c.date = lastPreview(m, key, el.Entities), m.Date
@@ -513,7 +515,7 @@ func loadTopics(ctx context.Context, api *tg.Client, p tg.InputPeerClass) ([]top
 	var out []topic
 	for _, t := range res.Topics {
 		if ft, ok := t.(*tg.ForumTopic); ok && ft.Title != "" { // deleted topics carry no title
-			out = append(out, topic{ft.ID, clean(ft.Title), ft.UnreadCount})
+			out = append(out, topic{ft.ID, clean(ft.Title), ft.UnreadCount, ft.ReadOutboxMaxID})
 		}
 	}
 	return out, nil
@@ -583,8 +585,9 @@ func loadForumTopics(ctx context.Context, api *tg.Client, cs []chat) {
 	wg.Wait()
 }
 
-// quoteText is how a replied-to message is shown above the reply.
-func quoteText(from, text string) string { return from + `: "` + cut(text, 60) + `"` }
+// quoteText is a replied-to message as shown above the reply: the name and the start of the text, joined by
+// a NUL that quoteRow splits on to colour them.
+func quoteText(from, text string) string { return from + "\x00" + cut(text, 60) }
 
 // fillQuotes looks up, in one request, the messages that lines reply to but that are not among the lines
 // themselves (older ones), so the reply can still show who and what it answers. Best effort: on any error
@@ -647,4 +650,36 @@ func linesOf(res tg.MessagesMessagesClass) []line {
 		}
 	}
 	return out
+}
+
+// searchPeople asks Telegram for users, groups and channels matching q (name or username), for opening a
+// chat that is not in the list yet. Each result carries the access hash the search returned.
+func searchPeople(ctx context.Context, api *tg.Client, q string) ([]chat, error) {
+	res, err := api.ContactsSearch(ctx, &tg.ContactsSearchRequest{Q: q, Limit: 20})
+	if err != nil {
+		return nil, err
+	}
+	ent := peer.EntitiesFromResult(res)
+	seen := map[string]bool{}
+	var out []chat
+	for _, p := range append(res.MyResults, res.Results...) {
+		key := peerKey(p)
+		in, err := ent.ExtractPeer(p)
+		title := peerTitle(ent, p)
+		if key == "" || seen[key] || err != nil || title == "?" {
+			continue
+		}
+		seen[key] = true
+		user, forum := peerExtra(ent, p)
+		out = append(out, chat{key: key, title: title, username: user, peer: in, forum: forum, last: foundNote(user)})
+	}
+	return out, nil
+}
+
+// foundNote is the preview line of a search result, so it reads as "from Telegram", not as a chat you have.
+func foundNote(username string) string {
+	if username != "" {
+		return "@" + clean(username) + " · tìm trên Telegram"
+	}
+	return "tìm trên Telegram"
 }

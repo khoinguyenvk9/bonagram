@@ -2,208 +2,281 @@
 
 **English** | [Tiếng Việt](README.vi.md)
 
-Telegram in a terminal tab: new messages with a bell, desktop notifications and an unread count in the tab title, and you reply right where you are without switching to another app.
+![Go 1.26+](https://img.shields.io/badge/Go-1.26%2B-00ADD8?logo=go&logoColor=white)
+![Platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-555)
+![MIT license](https://img.shields.io/badge/license-MIT-e5a55d)
 
-Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connection) and [Bubble Tea](https://github.com/charmbracelet/bubbletea) (the terminal UI). This is an **unofficial** client: you sign in with your own Telegram account. It is a single executable, nothing else to install.
+**Telegram in a terminal tab.** New messages ring a bell, raise a desktop notification and show an unread count in the tab title; you answer right where you are, without switching apps.
 
-> **Heads-up:** the interface text (hints, notices, the in-app guide) is in **Vietnamese** only for now. Chat content is shown as is, in any language.
+Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connection) and [Bubble Tea](https://github.com/charmbracelet/bubbletea) (the terminal UI). This is an **unofficial** client: you sign in with your own Telegram account. One executable, nothing else to install.
+
+> **Heads-up:** the interface text (labels, hints, notices, the in-app guide) is in **Vietnamese** only for now. This README gives each label with its meaning. Chat content is shown as is, in any language.
 
 ![bonagram screenshot](docs/screenshot.png)
 
-*Illustration: sample data (made-up names and messages), rendered from the app's own output by `scripts/shots.sh`. It shows a reply quote, formatting, links (a hidden one with its address), a code block, a file card and a location card. Real colours and fonts depend on your terminal.*
+*Sample data (made-up names and messages), rendered from the app's own output by `scripts/shots.sh`: a reply quote, formatting, links, a code block, a file card and a location card. Real colours and fonts depend on your terminal.*
+
+<details>
+<summary>Screenshot: searching a chat with <code>Ctrl+F</code></summary>
 
 ![Searching messages with Ctrl+F](docs/screenshot-search.png)
 
-*`Ctrl+F`: searching the messages of a chat (sample data).*
+</details>
 
-## Features
+## Contents
 
-- A search box and the open chat's name share one band at the top; the second line says what kind of chat it is (`@username`, group, number of topics, muted). The search box and the message box use the same border style, and the border changes colour while the cursor is in it.
-- Chat list on the left (clickable): two lines per chat, name with unread count and time, then the last message with the sender's name in groups.
-- Search chats with `Ctrl+K` or by clicking the search box: accent-insensitive ("dat" finds "Đạt"), also matches usernames.
-- Switch between chats with the keyboard, jump to the next chat with unread messages.
-- New messages show up at once: bell, a small notice at the top, a desktop notification when the tab is not focused, `(3) bonagram` in the tab title. Muted chats do not ring. Messages missed while offline are fetched again when the connection returns.
-- Reply to any message. Messages you send show up immediately.
-- Scroll to the top to load older messages (capped, see Configuration).
-- Forum groups (topics): each topic is a tab with its own unread count.
-- Images: full-screen viewer, optional thumbnails inside the chat. Videos, files and GIFs open in the system's app.
-- Code blocks with a language header and a **copy** button; inline code has its own background.
-- Other people's reactions appear under the message, yours is highlighted. You can react too.
-- Edit and delete your own messages, forward, open links, send photos or files (button, `Ctrl+O` or `/file`), pinned message shown at the top of the chat, unsent text kept per chat. See "Working with messages".
-- System messages are described in words: someone joined or left, was added or removed, group renamed, message pinned, topic created, calls (missed or duration), auto-delete timer. Rare event types show as `[sự kiện: Name]`.
-- Bots that stream an answer by editing one message again and again are shown live.
-- Archived chats are hidden, like in Telegram. Pinned chats stay on top.
-- Drag the vertical divider between the chat list and the messages to change the width (remembered next time).
-- Typing Vietnamese (Telex/VNI) shows up in the input box as you type.
+- [Highlights](#-highlights)
+- [Quick start](#-quick-start)
+- [Requirements](#-requirements)
+- [Install](#-install)
+- [First sign-in](#-first-sign-in)
+- [Using bonagram](#-using-bonagram): the chat list, reading, writing and sending, working with a message, images, video and files
+- [Keys and mouse](#-keys-and-mouse)
+- [Configuration](#-configuration)
+- [Terminals, tmux and clipboard](#-terminals-tmux-and-clipboard)
+- [Data and security](#-data-and-security)
+- [Troubleshooting](#-troubleshooting)
+- [Limitations](#-limitations)
+- [Performance](#-performance)
+- [Development](#-development) · [License](#-license)
 
-## Requirements and pre-flight checklist
+## ✨ Highlights
 
-Tick each item; if one fails, follow the right-hand column.
+- **Messages arrive at once:** a bell, a small notice in the app, a desktop notification when the tab is not focused, `(3) bonagram` in the tab title. Muted chats stay quiet. Messages missed while offline are fetched again.
+- **Messaging like the official app:** reply, edit, delete, forward, react, pin, `@mentions`, send photos and files (several at once, with a caption), send a location.
+- **Multi-line message box:** `**bold**` `__italic__` `` `code` `` formatting, emoji suggestions after `:`, undo, Vietnamese input methods (Telex/VNI).
+- **Right-click menus:** on a message (one-click reactions, reply, pin, delete…) and on a chat (pin, mute, delete).
+- **Read receipts:** `✓` when sent, `✓✓` once read. Reading on your phone lowers the unread counts here too.
+- **Fast search:** chats without typing accents (`dat` finds `Đạt`), people and groups not in your list yet, and the text of a chat.
+- **Real images in the terminal** (Kitty, Ghostty), video through mpv, code blocks with a copy button.
+- **Light:** about 25 MB of memory, next to no CPU when idle. In a narrow window the chat list folds into a column of initials.
 
-| ☐ | You need | Check with | If it fails |
+## 🚀 Quick start
+
+1. **Get the executable** from the [Releases page](https://github.com/khoinguyenvk9/bonagram/releases), or build it: `go build -ldflags="-s -w" -o bonagram .`
+2. **Get an `api_id` and `api_hash`** at <https://my.telegram.org> → *API development tools* (see [First sign-in](#-first-sign-in)).
+3. **Run** `./bonagram`, enter those two values, your phone number and the code Telegram sends. Done.
+
+Press `F1` in the app at any time for the key guide. The bottom row of the screen always lists the keys that work right now.
+
+## 📋 Requirements
+
+Tick each item; for anything missing, follow the right-hand column.
+
+| ☐ | You need | Check with | If not |
 |---|---|---|---|
-| ☐ | **Go 1.26 or newer** (only to build) | `go version` | Install from <https://go.dev/dl>. Go 1.21+ downloads the right version automatically when building, but needs network |
-| ☐ | **A network that reaches Telegram** (and the Go modules on the first build) | The official Telegram app works on the same network | Use a VPN. The app does **not support proxies** (SOCKS, MTProxy) |
-| ☐ | **A Telegram account** with an `api_id` and `api_hash` | See "Getting `api_id` and `api_hash`" | Create them at <https://my.telegram.org> |
-| ☐ | **A terminal with 24-bit colour** | `echo $COLORTERM` prints `truecolor` or `24bit` | Use Ghostty, Kitty, WezTerm, iTerm2, Alacritty... macOS Terminal.app does not support it: colours will be wrong |
-| ☐ | **A terminal with mouse support** | You can click a chat after opening the app | Enable mouse reporting in your terminal |
-| ☐ | **UTF-8 locale** (for Vietnamese text and emoji) | `locale` or `echo $LANG` contains `UTF-8` | `export LANG=en_US.UTF-8` (or `vi_VN.UTF-8`) |
-| ☐ | **A window of at least 80x24** | `tput cols; tput lines` | Enlarge the window. Smaller still works without errors, but is cramped |
-| ☐ | (Linux) clipboard and file-opening tools | `command -v xclip wl-copy xdg-open` | Install `xclip` (X11) or `wl-clipboard` (Wayland), and `xdg-open`. Without them the copy button only uses OSC 52, and files cannot be opened in outside apps |
-| ☐ | (tmux) the right options | See "Using it in tmux" | Add them to `~/.tmux.conf` |
+| ☐ | **Go 1.26 or newer** (only to build from source) | `go version` | Install from <https://go.dev/dl>. Go 1.21+ fetches the right version by itself (needs network) |
+| ☐ | **A network that reaches Telegram** | The official Telegram app works on the same network | Use a VPN. **No proxy support** yet (SOCKS, MTProxy) |
+| ☐ | **A Telegram account** with an `api_id` and `api_hash` | See [First sign-in](#-first-sign-in) | Create them at <https://my.telegram.org> |
+| ☐ | **A terminal with 24-bit colour** | `echo $COLORTERM` prints `truecolor` or `24bit` | Use Ghostty, Kitty, WezTerm, iTerm2, Alacritty… macOS Terminal.app lacks it: colours will be wrong |
+| ☐ | **Mouse support in the terminal** | Clicking a chat works after start | Turn on mouse reporting in the terminal |
+| ☐ | **A UTF-8 locale** (Vietnamese text, emoji) | `echo $LANG` contains `UTF-8` | `export LANG=en_US.UTF-8` |
+| ☐ | **A window of 80×24 or more** | `tput cols; tput lines` | Smaller still works; under 76 columns the chat list folds into initials |
+| ☐ | (Linux) clipboard and file-opening tools | `command -v xclip wl-copy xdg-open` | Install `xclip` (X11) or `wl-clipboard` (Wayland), and `xdg-open` |
+| ☐ | (Optional) [mpv](https://mpv.io), a Nerd Font | `command -v mpv` | mpv plays video in the terminal; a Nerd Font gives the menu icons (built into Ghostty, Kitty, WezTerm) |
 
-**Platforms:** macOS has been used for real (Apple Silicon). Linux (amd64, arm64) and Windows are built and their tests run on GitHub Actions (Linux, Windows and macOS runners), but nobody has used the app against a real account there yet. Windows cannot open files in outside apps.
+**Platforms:** used daily on macOS (Apple Silicon). Linux (amd64, arm64) and Windows are built and tested on GitHub Actions but nobody has used them with a real account yet. Windows cannot open files in other apps yet.
 
-**Recommended terminal:** Ghostty or Kitty (real images everywhere, desktop notifications, clipboard). Other terminals work, with a few features limited (see "Limitations").
+**Recommended terminals:** **Ghostty** or **Kitty**: real images, desktop notifications, clipboard, icons built in.
 
-## Install
+## 📦 Install
 
-**Prebuilt binary (no Go needed):** download the archive for your system from the [Releases page](https://github.com/khoinguyenvk9/bonagram/releases) (`darwin` = macOS, `arm64` = Apple Silicon / ARM, `amd64` = Intel/AMD), unpack it and run `bonagram` (`bonagram.exe` on Windows). Check the download against `checksums.txt` if you like. The binaries are not code-signed, so the first run may be blocked:
-- macOS: `xattr -d com.apple.quarantine ./bonagram` (or right-click > Open in Finder).
-- Windows: SmartScreen shows "unknown publisher": More info > Run anyway.
+**Prebuilt executable (no Go needed).** Download the archive for your system from the [Releases page](https://github.com/khoinguyenvk9/bonagram/releases) (`darwin` = macOS, `arm64` = Apple Silicon / ARM, `amd64` = Intel/AMD), unpack it and run `bonagram` (`bonagram.exe` on Windows). You can check the download against `checksums.txt`. The executables are not signed, so the first start may be blocked:
 
-**From source:** in the source directory:
+- **macOS:** `xattr -d com.apple.quarantine ./bonagram` (or right-click › Open in Finder).
+- **Windows:** SmartScreen says "unknown publisher": choose More info › Run anyway.
+
+**From source:**
 
 ```bash
 go build -ldflags="-s -w" -o bonagram .
 ./bonagram
 ```
 
-To stamp a version number into the executable (so users can report the right build): `go build -ldflags="-s -w -X main.version=0.1.0" -o bonagram .`
+To stamp a version into the executable (so bug reports name the right build): `go build -ldflags="-s -w -X main.version=<version>" -o bonagram .`
 
-Command line:
+To run it from anywhere, copy `bonagram` into a folder on your `PATH`, for example `~/.local/bin`.
 
 | Command | What it does |
 |---|---|
-| `bonagram` | Start the app |
-| `bonagram --version` (or `-v`) | Print the version, Go version and platform |
-| `bonagram --help` (or `-h`) | Print short usage |
+| `bonagram` | Opens the app |
+| `bonagram --version` (`-v`) | Prints the version, Go version and platform |
+| `bonagram --help` (`-h`) | Prints a short usage |
 
-An unknown option prints an error and exits with code 2 without starting the app.
+An unknown option prints an error and exits with code 2.
 
-To run it from any directory, copy `bonagram` into a directory on your `PATH`, for example `~/.local/bin`.
+## 🔑 First sign-in
 
-## Getting `api_id` and `api_hash`
+**Getting an `api_id` and `api_hash`:**
 
 1. Go to <https://my.telegram.org> and sign in with your Telegram phone number.
-2. Choose **API development tools** and create an application (name and description are up to you).
-3. Copy the **App api_id** (a number) and **App api_hash** (a long string).
+2. Open **API development tools** and create an application (any name and description).
+3. Copy the **App api_id** (a number) and **App api_hash** (a long string). They are yours alone: do not share them or commit them.
 
-`api_id` and `api_hash` are yours alone: do not share them and do not commit them to git.
+**Run `./bonagram`:** enter the `api_id`, the `api_hash`, then your phone number, the code Telegram sends and your two-step password if you have one. A number starting with `0` is read as a **Vietnamese** number (turned into `+84…`); other countries need the full `+<country code>…`. Later starts go straight in. The first start opens the key guide (`F1`) once.
 
-## Signing in and running
+Keep it open in its own terminal tab. Quit with `Ctrl+Q`.
 
-```bash
-./bonagram
-```
+Settings and the session live in `~/.config/bonagram/`:
 
-The first time: enter `api_id` and `api_hash`, then your phone number (a number starting with `0` is taken as a **Vietnamese** number and turned into `+84...`; for other countries type it in full as `+<country code>...`), the code Telegram sends you, and the two-step password if you have one. The app then opens. Later runs start straight away without asking again.
-
-Open it in its own terminal tab and leave it there. Quit with `Ctrl+Q`.
-
-Settings and the login session live in `~/.config/bonagram/`:
-
-| File | Contents |
+| File | Content |
 |---|---|
-| `env` | `api_id`, `api_hash` and options |
-| `session.json` | The login session |
-| `width` | Width of the chat list |
-| `help-seen` | An empty file marking that the app already opened the guide on first launch (delete it to see the guide again) |
+| `env` | `api_id`, `api_hash` and options (see [Configuration](#-configuration)) |
+| `session.json` | The session: **full access to your account**, keep it private |
+| `width` | Width of the chat list; `8` means folded |
+| `help-seen` | Marks that the guide was shown once (delete it to see it again) |
 
-## Keys
+## 💬 Using bonagram
 
-| Key | What it does |
+> On macOS keys are written the Mac way: `⌃` is Control, `⌥` is Option, `⏎` is Return. `⌃K` = `Ctrl+K`.
+
+### The chat list
+
+- **Open a chat:** click it, or `Ctrl+N` / `Ctrl+P` for the next / previous one, `Ctrl+G` for the next chat with unread messages.
+- **Search chats:** `Ctrl+K` or click the search field. No need to type accents (`dat` finds `Đạt`); usernames match too. From 3 letters on, people, groups and channels **on Telegram** (by name or `@username`) are listed under the matches, marked *tìm trên Telegram* (found on Telegram): pick one to open it as a new chat and message someone who is not in your list yet.
+- **Right-click a chat:**
+  - **Ghim lên đầu** (pin to top) / *Bỏ ghim chat* (unpin); a regular account can pin 5 chats.
+  - **Tắt thông báo** (mute) / *Bật thông báo* (unmute); muting lasts until turned back on.
+  - **Xoá chat** (delete, private chats): *Chỉ xoá phía tôi* (my side only) or *Xoá cho cả hai bên* (for both people); cannot be undone.
+  - **Rời nhóm** (leave, groups and channels). Saved Messages cannot be deleted from here.
+- **Forum groups:** each topic is a tab with its own unread count; `Ctrl+T` / `Ctrl+Y` change topic.
+- **Width:** drag the divider between the list and the messages (remembered). Drag it all the way left and the list **folds into a column of initials**, like Telegram: one coloured tile per chat, the unread count beside it, the name on hover; drag it back out to unfold. A window too narrow for the list (under 76 columns at the default width) folds it by itself; `Ctrl+K` opens the full list until a chat is picked.
+- Pinned chats stay on top; archived chats are hidden, like in Telegram.
+
+### Reading
+
+- **Your messages** sit in a warm block on the right with `✓` (sent) or `✓✓` (read; in groups, once anyone has read it). Each day starts with a `─── Hôm nay ───` (today) line.
+- **Replies** show a quote `│ Name  text` above them. **Click the quote** to jump to the message it answers (highlighted; an older one is loaded with the messages around it, `Esc` goes back to the latest).
+- **Pinned messages:** the *Ghim* (pinned) row at the top shows the newest pin (`Ghim 1/3` when there are several). Click it to jump to that message; click again for the older pins.
+- **Search a chat:** `Ctrl+F`, type, `⏎`; `↑` `↓` pick a result, `⏎` opens the messages around it, `Esc` closes. Up to 50 results, newest first.
+- **Older messages:** scroll to the top (or `PgUp`) to load more, up to `BONAGRAM_MAX_MESSAGES`.
+- **Links** are blue, underlined on hover, opened by a click. A link hidden behind words gets its address written after them.
+- **Everything is drawn:** bold, italic, underline, strikethrough, spoilers, code, mentions, hashtags; reactions as small chips (yours in amber); service messages in words (someone joined, left, renamed the group, a call…). A bot that streams its answer by editing one message shows it live.
+- **Read state:** opening a chat marks it read, like the official apps. Reading on your phone lowers the counts here at once.
+
+### Writing and sending
+
+- **Send:** type and press `⏎`. **New line:** `⌥⏎` (Alt+Enter) or `Ctrl+J`. The box grows up to 6 rows, then scrolls; pasted text keeps its lines. Most terminals send `Shift+Enter` as plain `Enter`; set yours to send it as `Alt+Enter` (possible in iTerm2, Ghostty, Kitty) and `Shift+Enter` makes a new line too.
+- **Reply:** `Ctrl+R` (newest message), or select a message and press `⏎`, or right-click › *Trả lời* (reply). `Esc` cancels.
+- **Emoji:** type `:` at the start of a word and 2+ letters (`:haha`, `:camon`, `:tim`, `:like`, `:pho`): `←` `→` pick, `Tab` or `⏎` insert. Names are English and accent-free Vietnamese.
+- **Mentions:** in a group, type `@` at the start of a word to list members; `↑` `↓` pick, `Tab` or `⏎` insert. Members without a username are still notified. Some large groups hide their member list; the app then says it cannot read it.
+- **Formatting** (typed marks, like Telegram):
+
+  | Type | Result |
+  |---|---|
+  | `**bold**` | **bold** |
+  | `__italic__` | _italic_ |
+  | `~~strike~~` | ~~strike~~ |
+  | `\|\|hidden\|\|` | spoiler |
+  | `` `code` `` | inline code |
+  | ```` ```go ```` newline, code, newline ```` ``` ```` | code block (language optional) |
+  | `[words](https://address)` | link behind the words |
+
+  A single `*` or `_` is not a mark, so `snake_case` and `2*3` are safe; put `\` before a mark to type it literally. Editing a message (`E`) turns its formatting back into marks, so nothing is lost.
+- **Editing keys:** `Ctrl+Z` undo, `Ctrl+W` delete a word, `Ctrl+U` delete to the start of the line, `Home` `End` (or `Ctrl+A` `Ctrl+E`) line start / end, `⌥←` `⌥→` by word, click to place the cursor.
+- **Send photos and files** (one or several, with a caption):
+  1. Pick them: click the **paperclip** (or the word `Tệp`) at the end of the message box, or press `Ctrl+O`, for the system file dialog; or type `/file ~/Downloads/report.pdf ~/Pictures/a.png`; or drag files from Finder into the terminal (it pastes the paths) and use `/file`.
+  2. The files are listed above the box. Type a caption if you like, `⏎` sends, `Esc` drops them.
+
+  A jpg/png under 10 MB goes as a photo, anything else as a file. Several files go as albums of up to 10, the caption on the first. While replying, they are sent as the reply. On Linux the dialog needs `zenity` or `kdialog`.
+- **Send a location:** `/position 10.7769, 106.7009` (or `/vitri`), or paste a Google Maps link with coordinates.
+- **Drafts:** unsent text is kept per chat and topic when you switch away; quitting the app drops it.
+
+### Working with a message
+
+**Right-click a message** for its menu:
+
+- The top row holds **7 quick reactions**: click one (or press `1`…`7`) to react at once; one you gave has its own background, click it again to take it back.
+- Below come the actions, each with an icon and its key: **Trả lời** (reply), **Xem ảnh / Tải tệp** (view photo / download file), **Chép** (copy), **Mở link / Chép link** (open / copy link), **Ghim** (pin), **Chuyển tiếp** (forward), **Sửa** (edit), **Xoá** (delete). Edit and delete only on your own messages.
+- **Ghim** (pin) opens a sub-menu: in a group, *Ghim và báo cho mọi người* (pin and notify) or *Ghim im lặng* (pin silently; needs admin rights); in a private chat, *Ghim cho cả hai bên* (for both) or *Chỉ ghim cho tôi* (only for me). A pinned message offers *Bỏ ghim* (unpin) instead.
+- **Xoá** (delete) asks *Xoá với mọi người* (delete for everyone). Cannot be undone.
+- **Forward:** after picking it, click the target chat in the list (or search and `⏎`).
+
+**With the keyboard:** `Ctrl+B` (or a click on a message) selects messages, `↑` `↓` move, then:
+
+| Key | Action |
 |---|---|
-| `Ctrl+K` | Search chats (`↑` `↓` pick a result, `Enter` open, `Esc` cancel) |
-| `Ctrl+F` | Search the text of the messages in the open chat (or topic): type a word, `Enter` searches, `↑` `↓` pick, `Enter` opens the messages around it, `Esc` closes. Up to 50 results, newest first. While an old stretch is shown, new messages are not added to it and the bar says so; `Esc` goes back to the newest |
+| `⏎` | Reply; on a photo view it, on a file download it |
+| `C` | Copy the code block (again: the next one); a message without code is copied whole |
+| `E` | Edit your message: `⏎` saves, `Esc` cancels |
+| `D` | Delete your message: `Y` confirms, any other key keeps it |
+| `R` | React: press `1`…`7` (👍 👎 ❤ 🔥 🎉 😁 😢); the same one again takes it back |
+| `F` | Forward: pick the target chat, `⏎` sends; a forum group gets it in its General topic |
+| `O` / `L` | Open a link (again: the next one) / copy every link of the message, hidden ones included |
+| `M` | Jump to the nearest @mention above, among the loaded messages |
+| `Esc` | Stop selecting |
+
+**Selecting text:** drag over the text of messages; releasing the mouse copies it.
+
+### Images, video and files
+
+**Images** (`⏎` or a click views one full screen; `Esc`/`Q` closes, `O` opens it in the system app):
+
+| Terminal | In the message list | Full-screen viewer |
+|---|---|---|
+| Kitty, Ghostty | real image | real image |
+| iTerm2, WezTerm, mintty, Rio, VS Code | colour blocks | real image (iTerm2 protocol) |
+| foot, Windows Terminal 1.22+, Konsole, mlterm, contour | colour blocks | real image (Sixel) |
+| Terminal.app, Alacritty, GNOME Terminal, tmux, others | colour blocks | colour blocks |
+
+Only Kitty and Ghostty were tried for real; the other rows follow each terminal's documentation. If the guess is wrong, set `BONAGRAM_IMAGES`. Thumbnails inside the chat are turned on with `BONAGRAM_PREVIEWS=1`. Still stickers are drawn as pictures; animated ones are a label.
+
+**Video and GIFs:** `⏎` downloads and, with [mpv](https://mpv.io) installed, plays it right in the terminal (`q` returns to the app); without mpv the system player opens it. Install: `brew install mpv`, `apt install mpv` or `winget install mpv`.
+
+**Files** show as one line, `PDF  name  2.3 MB  ⏎ tải` (download). `⏎` saves into **Downloads** (the same name and size is reused, a different file becomes `name (1).ext`). Familiar kinds (images, video, audio, PDF, text, Office) open in the system app; others are only shown in the file manager and **never run**, because opening any file from a chat could run code. Expired file references are refreshed by themselves.
+
+**Locations** show as one line with a *Mở bản đồ ↗* (open map) link to Google Maps.
+
+**Voice messages:** `⏎` downloads one and opens it in the system app; QuickTime on macOS usually cannot play its `.ogg` format.
+
+## ⚡ Keys and mouse
+
+`F1` opens the guide in the app. The bottom row of the screen always lists the keys of what is open.
+
+**Anywhere**
+
+| Key | Action |
+|---|---|
+| `Ctrl+K` | Search chats (and people, groups on Telegram) |
 | `Ctrl+N` / `Ctrl+P` | Next / previous chat |
-| `Ctrl+G` | Jump to a chat with unread messages |
-| `Ctrl+T` / `Ctrl+Y` | Next / previous topic (forum groups) |
-| `Ctrl+B` | Select a message in the message pane (`↑` `↓` move, `Esc` leave) |
-| `Enter` on a message with a photo or file | A photo opens full screen (`Esc` or `Q` close, `O` open in the system app). A file is saved in your `Downloads` folder (an existing file of the same name and size is reused, a different one gets `name (1).ext`) and opened in the system app if it is a known harmless type (documents, pictures, audio, video); any other type is only shown in the file manager, never run. The bar at the bottom says what is downloading; an error stays on screen until you act. An old message whose file link expired is read again automatically |
-| `Enter` or `Ctrl+R` on a normal message | Reply to it (`Ctrl+R` with nothing selected: reply to the newest message) |
-| `C` (while selecting a message) | Copy the message's code block; press again for the next block. A message without code is copied whole |
-| `E` `D` `R` `F` `O` `M` (while selecting a message) | Edit, delete, react, forward, open link, jump to @mention. See the next section |
-| `Ctrl+U` / `Ctrl+W` | Delete the text before the cursor (at the end of the line that clears the box) / delete one word. Cursor in the middle of the line: press `End` first |
-| `Esc` | Cancel a reply or an edit |
-| `↑` on the first message, `PgUp`, mouse wheel up | Load older messages |
-| `F1` | Open / close the key guide inside the app (`↑` `↓` scroll, `Esc` close). The very first launch opens it once automatically |
+| `Ctrl+G` | Chat with unread messages |
+| `Ctrl+T` / `Ctrl+Y` | Next / previous topic |
+| `Ctrl+F` | Search the open chat |
+| `Ctrl+B` | Select messages (see [Working with a message](#working-with-a-message)) |
+| `PgUp` / `PgDn` | Scroll the messages |
+| `F1` | Guide |
 | `Ctrl+Q` | Quit |
 
-Mouse:
+**While typing**
 
-- Click a chat to open it, the search box to search, a topic tab to switch topic.
-- Click a message to select it: a photo opens at once; a file only gets selected (the bar tells its name and size, `Enter` downloads it); any other message is highlighted so `E`/`D`/`R`/`F`/`O` work on it (`Enter` replies to it).
-- Links are blue. Move the mouse over one and it is underlined; a plain click (without dragging) opens it in the browser. A click only selects the message when it does not land on a link. The app cannot see the `Cmd` key (terminals do not report it), so a plain click is enough.
-- Click `[copy]` on a code block to copy the code.
-- Scroll over the chat list or the messages; drag the vertical divider to resize.
-- Drag over text in the messages to select it: when you let go the selected text is copied (it stays marked until you press a key or click). Dragging past the top or bottom edge scrolls. A long address that wraps over two lines is copied with a line break, so use `L` for links.
-
-## Formatting
-
-What you type is read for Telegram's usual marks, in the input box and when editing:
-
-| Type | Result |
+| Key | Action |
 |---|---|
-| `**bold**` | **bold** |
-| `__italic__` | _italic_ |
-| `~~strike~~` | ~~strike~~ |
-| `\|\|spoiler\|\|` | spoiler |
-| `` `code` `` | inline code |
-| ```` ```go ```` newline code newline ```` ``` ```` | a code block (the language is optional) |
-| `[words](https://address)` | a link behind the words |
+| `⏎` | Send |
+| `Alt+Enter` / `Ctrl+J` | New line |
+| `Ctrl+R` | Reply to the newest message |
+| `Ctrl+O` | Pick files to send |
+| `↑` `↓`, `Home` `End`, `Alt+←` `Alt+→` | Move in the message box |
+| `Ctrl+Z` / `Ctrl+W` / `Ctrl+U` | Undo / delete a word / delete to the line start |
+| `:name` / `@name` | Emoji / mention suggestions |
+| `Esc` | Cancel a reply, an edit, the picked files |
 
-A mark with no partner, or followed by a space, stays as typed; single `*` and `_` are not marks, so `snake_case` and `2*3` are safe. A backslash before a mark types it as it is (`\**`). Pressing `E` on a message turns its formatting back into marks so it survives an edit. Messages you receive are drawn with their bold, italic, underline, strike, code, links and mentions. Not done: marks in a file caption are sent as typed; underline and quotes cannot be typed (they are kept only if you do not edit that message).
+**Mouse**
 
-## Working with messages
-
-Press `Ctrl+B` (or click a message) to select it, then:
-
-| Key | What it does |
+| Action | Result |
 |---|---|
-| `E` | **Edit** your message: its text goes into the input box, press `Enter` to save or `Esc` to cancel |
-| `D` | **Delete** your message for everyone. The app asks first: only `Y` deletes, any other key keeps it |
-| `R` | **React**: press `1`..`7` (👍 👎 ❤ 🔥 🎉 😁 😢). Press the same one again to take it back |
-| `F` | **Forward**: pick the target chat in the list on the left (type to search), `Enter` to send, `Esc` to cancel. In a forum group the message goes to the General topic |
-| `O` | **Open a link** from the message in your browser (http/https only). With several links, press `O` again for the next one |
-| `L` | **Copy the links** of the message (one per line), including the address hidden behind a word |
-| `M` | Jump up to the nearest @mention among the loaded messages |
+| Click a chat, a topic tab | Opens it |
+| Click a message | Selects it; a photo opens at once, a file is only selected (`⏎` downloads) |
+| Click a link, `[copy]`, the pinned row, a quote | Opens the link, copies the code, jumps to the pin, jumps to the original |
+| Right-click a message / a chat | Its menu |
+| Drag over text | Selects and copies |
+| Drag the divider | Resizes the list; all the way left folds it |
+| Scroll | Scrolls the list or the messages; at the top, loads older ones |
 
-Other things:
+Terminals do not report `Cmd`, so a plain click is how links open in the app.
 
-- **Sending photos or files**: click the `[Tệp]` button at the right of the input box (or press `Ctrl+O`) to open the system file dialog and pick one or several files; or type `/file ` followed by paths, or drag files from Finder into the terminal so the terminal pastes the paths. Example: `/file ~/Downloads/report.pdf ~/Pictures/a.png`. The files are then listed above the input: type an optional caption and press `Enter` to send, or `Esc` to drop them. A jpg/png under 10 MB is sent as a photo, anything else as a file; several photos (or several files) go as an album of up to 10, the caption on the first one. While replying to a message, the files are sent as a reply to it. The dialog needs `zenity` or `kdialog` on Linux; on macOS and Windows it is built in.
-- **Pinned message**: the `▍ Ghim` line at the top of a chat is the newest pinned message (in a forum group, the one for the open topic). It costs one request when the chat is opened.
-- **Mentioning people**: in a group, type `@` at the start of a word and the members appear in the row above the input (keep typing to filter by name or username). `↑` `↓` choose, `Tab` or `Enter` insert, `Esc` close. Members are asked for from Telegram only while you type an `@`, nothing is loaded in advance. People without a username are mentioned by name and still get notified. Some large groups hide their member list from non-admins; then the app says it cannot read the members.
-- **Drafts**: text you were typing is kept per chat and per topic when you go elsewhere, and is still there when you come back. Drafts live in memory only: quitting the app loses them.
+## 🔧 Configuration
 
-These actions only run when you press the key; each is one request to Telegram, and nothing runs in the background.
-
-## Images and files
-
-Images, by terminal:
-
-| Terminal | In the message list | Full-screen viewer (`Enter` on a photo) |
-|---|---|---|
-| Kitty, Ghostty | real images (Kitty protocol) | real image |
-| iTerm2, WezTerm, mintty, Rio, VS Code | coloured blocks | real image (iTerm2 protocol) |
-| foot, Windows Terminal (1.22+), Konsole, mlterm, contour | coloured blocks | real image (Sixel) |
-| Terminal.app, Alacritty, GNOME Terminal, tmux, others | coloured blocks | coloured blocks |
-
-The terminal is guessed from environment variables; only Kitty and Ghostty were tried for real, the other rows follow each terminal's documentation. If a guess is wrong, set `BONAGRAM_IMAGES` to `kitty`, `iterm`, `sixel` or `blocks`. Static stickers are drawn in the message list (the newest 12 of the chat); animated ones stay a label.
-
-**Videos and GIFs:** `Enter` downloads the video and, when [mpv](https://mpv.io) is installed, plays it inside the terminal (Kitty graphics in Kitty/Ghostty, Sixel where Sixel works, coloured text cells elsewhere; `q` stops and brings the app back). Without mpv it opens in the system player. Install mpv with `brew install mpv`, `apt install mpv` or `winget install mpv`.
-
-**Locations:** a received location is a card with a "Open map" link (Google Maps; click it, or `O`/`L` on the message). Send your own with `/position 10.7769, 106.7009` (or `/vitri`); a Google Maps link with `@lat,long` or `q=lat,long` also works, so you can paste one. The terminal cannot know where you are, so you give the point.
-
-Files other than images are only opened in the system app if they are a familiar type (images, video, audio, PDF, text, Office documents). Files are saved in your Downloads folder; a file of any other type is only shown in the file manager, because opening an arbitrary file received in a chat could run code.
-
-## Code blocks and copy
-
-The `[copy]` button copies the code block verbatim to the clipboard with an OSC 52 sequence (supported by Ghostty, Kitty, WezTerm and iTerm2, and it works over SSH) and also calls `pbcopy` (macOS), `wl-copy` or `xclip` when present. macOS Terminal.app does not support OSC 52, so it relies on `pbcopy`. Inside tmux you need `set -g set-clipboard on`.
-
-## Configuration
-
-Put these in `~/.config/bonagram/env` (one `KEY=value` per line) or in environment variables. The `env` file wins over an environment variable of the same name. A bad value falls back to the default; an out-of-range value is clamped to the nearest bound.
+Set options in `~/.config/bonagram/env` (one `KEY=value` per line) or as environment variables; the `env` file wins. A bad value falls back to the default, an out-of-range one to the nearest bound.
 
 ```
 TG_API_ID=1234567
@@ -219,151 +292,135 @@ BONAGRAM_FPS=60
 
 | Key | Default | Meaning |
 |---|---|---|
-| `TG_API_ID`, `TG_API_HASH` | required | The API credentials from above |
-| `BONAGRAM_MAX_MESSAGES` | `500` (40 to 5000) | Most messages loaded while scrolling back through history. Higher uses more memory |
-| `BONAGRAM_PREVIEWS` | `0` (0 or 1) | `1` shows photo thumbnails inside the chat |
-| `BONAGRAM_PREVIEW_ROWS` | `8` (0 to 30) | Only with `BONAGRAM_PREVIEWS=1`: maximum thumbnail height in rows |
-| `BONAGRAM_PREVIEW_COUNT` | `8` (0 to 50) | Only with `BONAGRAM_PREVIEWS=1`: only the newest N photos in a chat get thumbnails |
-| `BONAGRAM_IMAGES` | auto | `kitty`, `iterm`, `sixel` or `blocks`: force how images are drawn |
-| `BONAGRAM_FPS` | `60` (10 to 120) | Maximum frames per second. Lower uses less CPU when idle but typing and scrolling feel less smooth |
+| `TG_API_ID`, `TG_API_HASH` | required | The API credentials |
+| `BONAGRAM_MAX_MESSAGES` | `500` (40–5000) | Most messages loaded when scrolling back |
+| `BONAGRAM_PREVIEWS` | `0` | `1` shows image thumbnails inside the chat |
+| `BONAGRAM_PREVIEW_ROWS` | `8` (0–30) | Tallest thumbnail, in rows |
+| `BONAGRAM_PREVIEW_COUNT` | `8` (0–50) | Only the newest N images of a chat get a thumbnail |
+| `BONAGRAM_IMAGES` | detected | `kitty`, `iterm`, `sixel` or `blocks`: force how images are drawn |
+| `BONAGRAM_FPS` | `60` (10–120) | Frame rate cap; lower uses less CPU but feels less smooth |
+| `BONAGRAM_ICONS` | on | `off` drops the menu icons (needed when the terminal font is not a Nerd Font: they show as boxes) |
 
-## Memory, CPU and disk
+## 💻 Terminals, tmux and clipboard
 
-Measured with v0.2.1 on macOS (Apple Silicon), real account, run inside tmux (images drawn as blocks), photo previews on (`BONAGRAM_PREVIEWS=1`), in Saved Messages, which holds many photos and videos. The v0.1.0 column is the earlier measurement (117 chats; whether photo previews were on was not written down).
-
-**Memory**
-
-| Situation | RSS v0.2.1 | Physical (`footprint`) v0.2.1 | v0.1.0 (RSS / physical) |
-|---|---|---|---|
-| Just started, chat list loaded | 24.9 MB | 12 MB | 26.5 / 15 MB |
-| One chat open (40 messages, photo previews drawn) | 60.1 MB | 18 MB | 26.8 / 15 MB |
-| Scrolled back to the 500-message cap | 60.8 MB | 20 MB | 28.7 / 16 MB |
-
-RSS includes shared system libraries and memory the Go runtime keeps after decoding images (the jump when the chat opens comes from downloading and scaling the photo previews; it is not given back to the system right away). The physical-memory column is what the OS attributes to the app and is the better figure: 12 MB at start, 20 MB with 500 messages and previews. Without photo previews, expect numbers close to the v0.1.0 column (not measured again: the setting comes from your env file, which was not changed for the test).
-
-**CPU** (percent of one core)
-
-| Situation | v0.2.1 | v0.1.0 |
-|---|---|---|
-| Startup (connect and load the chat list) | about 0.16 s of CPU (first 10 s) | about 0.1 s |
-| Idle | about 0.65% | about 0.7% |
-| Continuous mouse scrolling (1,000 wheel events in 12 s, 500 messages loaded) | about 9% | about 8% (10 s) |
-
-Quitting with Ctrl+Q left no process behind in 20 tries, nor in 10 tries of Ctrl+Q followed at once by closing the terminal.
-
-The app redraws at most 60 frames per second. Lower it with `BONAGRAM_FPS` to save CPU: 30 fps gives about 0.4% idle, 20 fps about 0.3%, at the cost of typing and scrolling feeling a little slower (worst-case draw delay 33 ms at 30 fps, 50 ms at 20).
-
-**Drawing** (benchmark on fake data, `bench_test.go`, Apple Silicon; a chat of 500 messages, each a reply with a link and formatting)
-
-| Step | v0.1.0 | v0.2.1 |
-|---|---|---|
-| Redraw the whole chat (after a new message, a key in selection mode) | 2.1 ms | 2.3 ms |
-| Build one frame (what scrolling and mouse movement cost) | 0.19 ms | 0.21 ms |
-| Go heap holding the 500 messages | 1.8 MB | 2.7 MB |
-
-v0.2.x keeps the drawing of every message and reuses it until the message changes; without that, the extra work (formatting, quotes for every reply, cards) made a redraw about 3 times slower.
-
-**Disk**
-
-| Item | Size |
-|---|---|
-| The `bonagram` executable (built with `-s -w`) | about 18 MB |
-| `~/.config/bonagram/` | a few dozen KB |
-| Cache of downloaded photos and files (`~/Library/Caches/bonagram/` on macOS, `~/.cache/bonagram/` on Linux) | depends on how many you view: a few hundred KB to a few MB per photo |
-
-The cache is never cleaned automatically: delete that `bonagram/` folder whenever you like, the app downloads again when needed.
-
-Notes on the numbers: each situation was measured once (figures vary by a few percent between runs); images drawn with the Kitty protocol in Ghostty were not measured, nor were accounts with thousands of chats. For real use, plan on 25 MB of RSS without photo previews and about 60 MB with them (12 to 20 MB of physical memory).
-
-## Using it in tmux
-
-Add this to `~/.tmux.conf` and reload (`tmux source ~/.tmux.conf`):
+**tmux:** add this to `~/.tmux.conf`, then `tmux source ~/.tmux.conf`. Inside tmux, images are always colour blocks.
 
 ```
 set -g default-terminal "tmux-256color"
 set -ga terminal-overrides ",*:RGB"   # 24-bit colour
-set -g set-clipboard on               # copy button
-set -g focus-events on                # notifications and read marks at the right moment
+set -g set-clipboard on               # the copy button
+set -g focus-events on                # notifications and read marks at the right time
 set -g mouse on
 ```
 
-Inside tmux, images are always drawn as blocks (no Kitty, iTerm2 or Sixel).
+**Clipboard:** the `[copy]` button and text selection use OSC 52 (Ghostty, Kitty, WezTerm, iTerm2; works over SSH too), plus `pbcopy` (macOS), `wl-copy` or `xclip` when present. Terminal.app copies only through `pbcopy`.
 
-## Data and security
+**Links:** every link is also an OSC 8 hyperlink, so terminals that support it (iTerm2, Ghostty, Kitty, WezTerm, Windows Terminal, GNOME Terminal, Konsole, Alacritty) open it with `Cmd`/`Ctrl`+click. Terminal.app and xterm lack it; tmux needs 3.4+ and `set -as terminal-features ',*:hyperlinks'`. A plain click in the app always works.
 
-- `~/.config/bonagram/session.json` **gives full access to your Telegram account**. Anyone with this file can read and send messages as you. Do not share it and do not put it in git.
-- `~/.config/bonagram/env` contains `api_hash`, so keep it at mode `600` (the app creates it that way).
-- The app only talks to Telegram's servers; it sends data nowhere else.
-- Opening a chat in the app marks it as read, like the official Telegram apps.
-- Names and message text received from Telegram have control characters stripped before display, so a sender cannot inject commands into your terminal.
+**Notifications and read marks** need the terminal to report window focus. Without it the app assumes the window is always being looked at.
 
-## Troubleshooting
+**Vietnamese input:** the text an input method is composing (Telex/VNI) shows in place when the terminal draws it at the real cursor. Not checked on every terminal.
 
-| Symptom | What to do |
+## 🔒 Data and security
+
+- `~/.config/bonagram/session.json` **is full access to your Telegram account.** Whoever has it can read and send as you. Do not share it or commit it.
+- `~/.config/bonagram/env` holds the `api_hash`; the app creates it with mode `600`.
+- The app talks to Telegram's servers only and sends data nowhere else.
+- Names and text from Telegram are stripped of control characters before they are shown, so a sender cannot inject commands into your terminal.
+- Downloaded files are never run.
+
+## 🆘 Troubleshooting
+
+| Symptom | Fix |
 |---|---|
-| `API_ID_INVALID` | `api_id`/`api_hash` are wrong. Fix them in `~/.config/bonagram/env`, or delete that file to enter them again |
-| Stuck while connecting | Check your network and VPN. Proxies are not supported |
-| Phone number rejected | A number starting with `0` becomes `+84...` (Vietnam). For other countries type it in full as `+<country code>...` |
-| Archived chats are missing | By design: Archived chats are hidden |
-| Images missing or distorted | Set `BONAGRAM_IMAGES=blocks`. In tmux images are always blocks |
-| Wrong or washed-out colours | Your terminal lacks 24-bit colour: switch terminal or check `echo $COLORTERM` |
-| Vietnamese or emoji show as boxes or misaligned | Check the UTF-8 locale and that your font has those characters |
-| `[copy]` does not copy | Your terminal may not support OSC 52; in tmux enable `set -g set-clipboard on` |
-| Half-typed Vietnamese (IME) text appears in the wrong place | Report it with the input method and terminal you use |
-| A `bonagram` process is still running after you quit | Stop it with `pkill bonagram` (a leftover process keeps the login session open). If it happens, report how you quit the app |
-| Sign out | Delete `~/.config/bonagram/session.json`, or end the session in Telegram under Settings, Devices |
+| `API_ID_INVALID` | Wrong `api_id`/`api_hash`: fix them in `~/.config/bonagram/env` or delete the file to enter them again |
+| Stuck connecting | Check the network and VPN. No proxy support yet |
+| Phone number rejected | A number starting with `0` becomes `+84…`; other countries need the full `+<country code>…` |
+| Archived chats missing | On purpose: archived chats are hidden |
+| Images missing or garbled | Set `BONAGRAM_IMAGES=blocks`. In tmux images are always colour blocks |
+| Wrong, greyish colours | No 24-bit colour: check `echo $COLORTERM` or switch terminal |
+| Menu icons show as boxes | Use a Nerd Font in the terminal, or `BONAGRAM_ICONS=off` |
+| Vietnamese or emoji show as boxes or misaligned | Check the UTF-8 locale and the font |
+| `[copy]` does not copy | The terminal lacks OSC 52; in tmux turn on `set -g set-clipboard on` |
+| The chat list folds by itself | The window is under 76 columns, or the divider was dragged all the way left: drag it back out (or delete `~/.config/bonagram/width`) |
+| Input-method text shows in the wrong place | Report it with the input method and terminal |
+| A `bonagram` process remains after quitting | `pkill bonagram` (a leftover keeps the session open); report how you quit |
+| Sign out | Delete `~/.config/bonagram/session.json`, or end the session in Telegram › Settings › Devices |
 | Start over | Delete the whole `~/.config/bonagram/` folder |
 
-## Limitations
+## 🚧 Limitations
 
-**Account and network**
-- One account per run (to switch accounts, delete `~/.config/bonagram/session.json`).
-- No proxy support. Where Telegram is blocked you need a VPN.
-- The app appears as a new device in Telegram under Settings, Devices.
-- Signing in many times in a row can make Telegram pause code sending for a while (FLOOD_WAIT): wait and retry.
-- Do not use it to send messages in bulk: Telegram may limit or ban the account.
+**Not supported yet:** sending voice messages, stickers, GIFs; playing voice messages in the app; secret chats, calls, stories; viewing archived chats; "typing…" and online status; proxies; several accounts at once (to switch, delete `session.json`).
 
-**Data loaded**
-- At most 1,000 main-folder chats; archived chats are hidden.
-- Opening a chat loads the latest 40 messages; scrolling up loads more, up to `BONAGRAM_MAX_MESSAGES` (default 500, at most 5,000).
-- At most 100 topics per forum group.
-- Messages edited by others (including bots streaming an answer by editing one message) update live, redrawn at most 4 times a second. Messages deleted by others stay on screen until you restart the app. This is on purpose: you can still read what was sent and deleted before you looked.
-- The pinned message is refreshed when a chat is opened; pinning or unpinning while you are viewing it only shows after you reopen the chat.
-- An archived chat that receives a new message (and which Telegram un-archives on its own) only shows again after you restart the app.
+**Changes made on other devices** arrive live for new messages, edits, reactions and read state. These only show after reopening the chat or the app: pinning or unpinning messages or chats, muting, archived chats getting new messages. Messages deleted by others are **deliberately** kept on screen until the app restarts, so you can still read what was sent and then deleted.
 
-**Features not available**
-- Sending: plain text, photos and files (one or several, with a caption). No voice messages. Text formatting is typed as marks (see "Formatting"). Telegram limits a message to 4,096 characters; longer ones give a send error.
-- Reactions: only 7 fixed emoji; if a chat does not allow that emoji (for example Saved Messages), Telegram refuses and the app shows an error. Edit and delete only work on your own messages (in Saved Messages, on all of them). Deleting cannot be undone.
-- Forwarding: one message at a time, keeps the original sender's name, goes to the General topic if the target is a forum group.
-- Messages you send as files or forward appear after a few seconds, when the app reloads the newest messages of that chat.
-- Display: bold, italic, clickable links with the mouse (use the `O` key), syntax colouring in code blocks, custom emoji images, seeing who reacted. A file is drawn as a small card: a coloured badge with its type (`PDF`, `ZIP`, `MP4`...), the name, and the size (plus the length for video and audio); in the chat list it is a one-line label (`[file] report.pdf · 2.3 MB`); stickers, polls, locations and contacts show as short labels. Link previews add no label.
-- Secret chats, calls and stories: not supported.
-- The interface is Vietnamese only, with a single fixed dark palette.
-- A chat with a new message jumps to the top of the unpinned chats; pinned chats always stay on top, in place. Pinning or unpinning a chat while the app is running only shows after you restart.
+**What is loaded:** up to 1,000 chats; 40 messages when a chat opens, more when scrolling up, up to `BONAGRAM_MAX_MESSAGES` (5,000 at most); up to 100 topics per forum group; 20 pinned messages per chat.
 
-**Terminal-dependent**
-- Real images in the message list only on Kitty and Ghostty; the full-screen viewer also on iTerm2-protocol and Sixel terminals; elsewhere coloured blocks. See the table under "Images".
-- Desktop notifications and correct read marks need the terminal to report window focus. If it does not, the app assumes the window is always being watched.
-- **Links**: every link is also an OSC 8 hyperlink, so terminals that support it underline it while `Cmd` (macOS) or `Ctrl` (Linux, Windows) is held over it and open it on `Cmd`/`Ctrl`+click, like a link in any other program. Terminals that support OSC 8 according to their documentation (not tried on every one here): iTerm2, Ghostty, Kitty, WezTerm, Windows Terminal, GNOME Terminal and other VTE ones, Konsole, Alacritty. **No support:** Terminal.app (macOS), xterm, the Linux text console; inside tmux you need 3.4 or newer with `set -as terminal-features ',*:hyperlinks'`. Where it is missing, the blue colour, the hover underline and the plain click of the app still work. Not checked: whether a terminal that opens the link itself on `Cmd`+click also lets the app see that click, which would open the link twice. Tell us which terminals behave differently and add them to this list.
-- The copy button uses OSC 52 (Ghostty, Kitty, WezTerm, iTerm2) and the `pbcopy`, `wl-copy`, `xclip` tools; Terminal.app only works through `pbcopy`.
-- Half-typed text from a Vietnamese input method only appears in the right place if the terminal draws it at the cursor position. Not checked on every terminal.
-- The app owns the mouse, so the terminal's own text selection does not work; dragging over the messages is handled by the app (copied through the clipboard routes above).
+**Also:**
+- Reactions are 7 fixed emoji; a chat that does not allow one (Saved Messages, for example) makes Telegram refuse it and the app says so.
+- Forwarding is one message at a time, keeping the original sender. Sent files and forwards show after a few seconds, when the app reloads the chat.
+- Telegram allows 4,096 characters per message. File captions are sent with the marks as typed (not turned into formatting).
+- Vietnamese interface only, one fixed dark theme.
+- The app shows as a new device in Telegram › Settings › Devices. Signing in many times in a row can make Telegram pause sending codes (FLOOD_WAIT): wait and retry.
+- The app owns the mouse, so text selection is done by the app instead of the terminal.
 
-## Development
+## 📊 Performance
 
-What changed between versions: [CHANGELOG.md](CHANGELOG.md).
+**Drawing** (benchmark on fake data, `bench_test.go`, Apple Silicon; a chat of 500 messages, each a reply with a link and formatting):
+
+| Step | v0.1.0 | v0.2.1 | v0.3.0 |
+|---|---|---|---|
+| Redraw the whole chat (after a new message) | 2.1 ms | 2.3 ms | **1.15 ms** |
+| One frame (scrolling, mouse movement) | 0.19 ms | 0.21 ms | **0.10 ms** |
+| Type one key into a 5,500-character draft | | | **0.29 ms** |
+| Go heap holding the 500 messages | 1.8 MB | 2.7 MB | 3.1 MB |
+
+<details>
+<summary>Memory, CPU and disk measured with a real account (v0.2.1)</summary>
+
+Measured on macOS (Apple Silicon) with a real account, inside tmux (images as colour blocks), thumbnails on (`BONAGRAM_PREVIEWS=1`), Saved Messages holding many photos and videos. The v0.1.0 column is an earlier measurement (117 chats).
+
+| Memory | RSS | Physical footprint | v0.1.0 (RSS / physical) |
+|---|---|---|---|
+| Just started, chat list loaded | 24.9 MB | 12 MB | 26.5 / 15 MB |
+| One chat open (40 messages, with thumbnails) | 60.1 MB | 18 MB | 26.8 / 15 MB |
+| Scrolled back to 500 messages | 60.8 MB | 20 MB | 28.7 / 16 MB |
+
+RSS includes the system's shared libraries and the memory Go keeps after decoding thumbnails; the physical footprint (`footprint`) is what the system charges to the app alone, the better figure. With thumbnails off the numbers are close to the v0.1.0 column.
+
+| CPU (percent of one core) | v0.2.1 | v0.1.0 |
+|---|---|---|
+| Start (connect, load the chat list) | about 0.16 s of CPU | about 0.1 s |
+| Idle | about 0.65% | about 0.7% |
+| Continuous scrolling (1,000 steps in 12 s, 500 messages) | about 9% | about 8% |
+
+The app draws at most 60 frames per second; `BONAGRAM_FPS=30` brings idle CPU to about 0.4% (20 frames: 0.3%), at the price of slightly less smooth typing and scrolling. Quitting with `Ctrl+Q` left no process behind in 30 tries.
+
+| Disk | |
+|---|---|
+| The executable (built with `-s -w`) | about 18 MB |
+| `~/.config/bonagram/` | a few tens of KB |
+| Cache of viewed images and files (`~/Library/Caches/bonagram/` on macOS, `~/.cache/bonagram/` on Linux) | depends on how many you view; safe to delete at any time |
+
+Each case was measured once (runs differ by a few percent); not measured with Kitty images on Ghostty or with accounts of thousands of chats.
+
+</details>
+
+## 🧪 Development
+
+Changes between versions: [CHANGELOG.md](CHANGELOG.md).
 
 ```bash
-go vet ./... && go test -race ./...    # tests never connect to Telegram
-go test -run TestModelFlow ./...       # run one test
+go vet ./... && go test -race ./...    # all tests, none touch Telegram
+go test -run TestModelFlow ./...       # one test
+go test -run '^$' -bench . -benchmem   # drawing benchmarks
+sh scripts/shots.sh                     # redraw the README screenshots (needs Chrome and ImageMagick)
 ```
 
-The test suite uses fake data: it sends messages into the UI model and checks the frames. The code that calls the Telegram API can only be verified by running the app against a real account.
+The tests use fake data: they send events into the interface and check the frames. The parts that call Telegram's API can only be verified by running the app with a real account.
 
-## License
+## 📄 License
 
-[MIT](LICENSE). The libraries it builds on are under their own permissive licenses (MIT, BSD, ISC, Apache-2.0).
+[MIT](LICENSE). The libraries the project uses all have permissive licenses (MIT, BSD, ISC, Apache-2.0).
 
-## Notes
-
-This is a personal project that uses Telegram's API through a user account. Use it only with your own account and do not use it to send messages in bulk: Telegram may limit or ban accounts that break its terms of service.
+> **Note:** this is a personal project that uses Telegram's API through a user account. Use it with your own account only and do not send bulk messages: Telegram may limit or ban accounts that break its terms.

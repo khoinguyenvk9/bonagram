@@ -2,6 +2,35 @@
 
 English: [CHANGELOG.md](CHANGELOG.md)
 
+## v0.3.0
+
+**Giao diện mới** (theo bản thiết kế)
+- Tông graphite với một màu nhấn hổ phách; "Bonagram" và số chat chưa đọc phía trên ô tìm không viền; tiêu đề chat một dòng.
+- Tin của bạn nằm trong khối nền ấm, giờ và ✓✓ ở dưới; mỗi ngày bắt đầu bằng dòng "─── Hôm nay ───"; trích dẫn có vạch theo màu tên người; reaction dạng ô; thẻ tệp và thẻ vị trí còn một dòng.
+- Ô soạn khung bo tròn có nút kẹp giấy và nút gửi; dòng dưới cùng là các ô phím của chế độ đang dùng, ghi theo kiểu macOS hoặc Windows/Linux, thay cho thanh phím tắt tiếng Anh.
+- Cửa sổ quá hẹp cho danh sách (dưới 76 cột với độ rộng mặc định), hoặc kéo thanh dọc hẳn sang trái, thì danh sách chat thu thành cột ô chữ viết tắt có màu, số chưa đọc, rê chuột để xem tên.
+
+**Nhắn tin**
+- Dấu đã đọc: `✓` khi đã gửi, `✓✓` khi đã được đọc, cập nhật trực tiếp.
+- Ô soạn nhiều dòng: `Alt+Enter`/`Ctrl+J` xuống dòng, dán văn bản giữ nguyên các dòng, ô cao dần tới 6 dòng, `↑` `↓` lên xuống dòng, click để đặt con trỏ, `Ctrl+Z` hoàn tác. Con trỏ thật đi theo để bộ gõ tiếng Việt hiện đúng chỗ.
+- Gợi ý emoji: gõ `:` + tên (`:haha`, `:camon`), chèn bằng `Tab`/`Enter`.
+- Chuột phải vào tin: hàng reaction ở trên cùng (một click, hoặc phím 1–7), bên dưới là trả lời, chép, ghim, chuyển tiếp, sửa, xoá, link và tệp, mỗi mục có biểu tượng Nerd Font và phím tắt (`BONAGRAM_ICONS=off` để bỏ biểu tượng).
+- Ghim và bỏ ghim tin (nhóm: báo cho mọi người hoặc im lặng; chat riêng: cho cả hai hoặc chỉ cho tôi).
+
+**Chat**
+- `Ctrl+K` tìm cả trên Telegram (người, nhóm, kênh theo tên hoặc `@username`) khi gõ từ 3 chữ, để nhắn cho người chưa có trong danh sách.
+- Chuột phải vào chat: ghim hoặc bỏ ghim, tắt hoặc bật thông báo, xoá chat (chỉ phía tôi hoặc cho cả hai) hoặc rời nhóm.
+- Đọc trên máy khác thì số chưa đọc trong app giảm theo ngay.
+
+**Đọc tin**
+- Click vào trích dẫn để nhảy tới tin gốc; click dòng Ghim để nhảy tới tin ghim, click tiếp để sang tin ghim cũ hơn (`Ghim 1/3`). Tin chưa tải thì mở cùng các tin quanh nó.
+
+**Hiệu năng**
+- Nhanh hơn v0.2.1 dù giao diện nhiều chi tiết hơn: vẽ lại chat 500 tin 1,15 ms (v0.2.1: 2,3 ms), một khung hình 0,10 ms (0,21 ms), gõ một phím trong bản nháp 5.500 ký tự 0,29 ms.
+
+**Tài liệu**
+- Viết lại README cả hai thứ tiếng: điểm nổi bật, bắt đầu nhanh, mục lục, hướng dẫn chia theo việc, bảng phím chia nhóm, và sửa các chỗ sai.
+
 ## v0.2.1
 
 - Vẽ lại nhanh hơn: nội dung từng tin và dòng trích dẫn được vẽ một lần rồi dùng lại cho tới khi thay đổi. Vẽ lại một chat 500 tin mất gần bằng v0.1.0 (2,3 ms so với 2,1 ms trong benchmark), dù giờ mọi tin trả lời đều có trích dẫn và chữ có định dạng.

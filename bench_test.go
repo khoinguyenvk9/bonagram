@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -80,4 +81,19 @@ func TestPerfHeap(t *testing.T) {
 	runtime.ReadMemStats(&z)
 	runtime.KeepAlive(mm)
 	t.Logf("HEAP in use with 500 messages: %.2f MB (before %.2f MB)", float64(z.HeapInuse)/1e6, float64(a.HeapInuse)/1e6)
+}
+
+// BenchmarkTypeInLongDraft is one key typed into a 5,500-character draft, with the frame drawn after it.
+func BenchmarkTypeInLongDraft(b *testing.B) {
+	m := newModel(b.Context(), nil, make(chan tea.Msg), config{maxMsgs: 500}, sideDef)
+	var mm tea.Model = m
+	mm, _ = mm.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	mm, _ = mm.Update(chatsMsg{chats: []chat{{key: "u1", title: "Đạt"}}})
+	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Paste: true, Runes: []rune(strings.Repeat("chào buổi sáng cả nhà ", 250))})
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mm, _ = mm.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'a'}})
+		_ = mm.View()
+	}
 }

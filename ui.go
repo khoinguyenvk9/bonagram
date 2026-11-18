@@ -14,6 +14,7 @@ import (
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/gotd/td/tg"
 	"github.com/gotd/td/tgerr"
 )
@@ -29,6 +30,7 @@ type config struct {
 	previewRows, previewCnt int
 	images                  string // "", "kitty" or "blocks": force how images are drawn
 	fps                     int    // renderer frame rate cap
+	icons                   bool   // Nerd Font icons in menus (BONAGRAM_ICONS=off for fonts without them)
 }
 
 type thumb struct {
@@ -52,6 +54,7 @@ type (
 		key    string
 		topics []topic
 		err    error
+		quiet  bool // a background refresh (a read elsewhere): update the counts, do not reopen the view
 	}
 	histMsg struct {
 		mk, key string
@@ -105,7 +108,28 @@ type (
 		rsOK           bool
 		err            error
 	}
-	pinMsg struct{ mk, text string } // the pinned message of a chat/topic, "" when it has none
+	pinMsg struct { // the pinned messages of a chat/topic, newest first; none when nothing is pinned
+		mk   string
+		list []pinned
+	}
+	// readInMsg: messages of chat key were read on another device; unread is what is left. In a forum topic
+	// (topic > 0) the update carries no count, so the topics are fetched again.
+	readInMsg struct {
+		key           string
+		topic, unread int
+	}
+	// readOutMsg: the other side read our messages up to id in chat key (topic > 0: in that forum topic).
+	readOutMsg struct {
+		key       string
+		topic, id int
+	}
+	// peopleTick: the chat search paused, time to ask the server. peopleMsg: its answer.
+	peopleTick struct{ seq int }
+	peopleMsg  struct {
+		seq   int
+		found []chat
+		err   error
+	}
 	newMsg struct {
 		key, title, username string
 		forum                bool
@@ -126,7 +150,11 @@ type model struct {
 	archived map[string]bool
 	cur      string // key of the open chat
 	top      int    // first visible row of the chat list
-	side     int    // chat list width
+	side     int    // chat list width as drawn (railW when folded)
+	sideWant int    // the width the user gave it (dragged, saved)
+	rail     bool   // the list is folded into initials (narrow window, or folded by the user)
+	folded   bool   // the user dragged the divider all the way left: folded in any window
+	railHot  int    // screen row the mouse is over in the rail, 0 when none
 	drag     bool
 
 	msgs    map[string][]line // by chat, or chat#topic in a forum
@@ -135,15 +163,18 @@ type model struct {
 	loading bool
 	redraw  bool // a renderTick is already scheduled
 	thumbs  map[int]*thumb
-	lineAt  []int     // first content line of each message of the open view
-	hits    []copyHit // copy buttons of the open view
-	cpFor   int       // message whose code block was copied last, and which block
+	lineAt  []int      // first content line of each message of the open view
+	hits    []copyHit  // copy buttons of the open view
+	quoteAt []quoteHit // reply quotes of the open view: a click jumps to the message replied to
+	cpFor   int        // message whose code block was copied last, and which block
 	cpIdx   int
 	nLines  int
 
 	searching bool
 	search    textinput.Model
-	sel       int // highlighted result while searching
+	sel       int    // highlighted result while searching
+	found     []chat // server results for the search that are not in the list; shown after the matches
+	fseq      int
 	browse    bool
 	bsel      int // highlighted message while browsing
 	reply     *line
@@ -157,11 +188,15 @@ type model struct {
 	mq        string
 	mseq      int
 	mactive   bool
+	ec        []emoji // emoji suggestions for the ":word" being typed
+	esel      int
+	estart    int                       // rune index of the ":"
 	pend      []member                  // picked mentions without a username: sent as entities
 	ms        *msearch                  // searching the messages of this chat (Ctrl+F)
 	detached  map[string]bool           // the view holds an old stretch found by a search, not the end of the chat
 	rows      []string                  // the message view as drawn, row by row (for selecting text)
 	rowOut    []bool                    // which rows belong to a message of ours
+	vlines    []string                  // the message view's content, row by row, as last set (setContent)
 	txt       selection                 // text selected with the mouse
 	quotes    map[string]string         // quote lines already measured
 	bodies    map[*tg.Message]bodyCache // message bodies drawn by the last render
@@ -174,15 +209,18 @@ type model struct {
 	prompt    string                    // question shown above the input
 	lkFor     int                       // message whose link was opened last, and which link
 	lkIdx     int
-	drafts    map[string]string // unsent text per chat/topic
-	pins      map[string]string // pinned message per chat/topic
+	drafts    map[string]string   // unsent text per chat/topic
+	pins      map[string][]pinned // pinned messages per chat/topic, newest first
+	pinAt     map[string]int      // which one the pinned row shows (a click jumps to it, then moves to the next)
 
-	help    bool // the guide (F1) is open
-	helpTop int  // first line of the guide shown
+	menu    *ctxMenu // the right-click menu of a message, nil when closed
+	help    bool     // the guide (F1) is open
+	helpTop int      // first line of the guide shown
 
 	viewer *viewer
 	vp     viewport.Model
-	in     textinput.Model
+	in     editor
+	inH    int // rows of the message box at the last layout
 
 	w, h     int
 	focused  bool
@@ -194,12 +232,11 @@ type model struct {
 }
 
 func newModel(ctx context.Context, api *tg.Client, events <-chan tea.Msg, cfg config, side int) model {
-	in := textinput.New()
-	in.Cursor.SetMode(cursor.CursorHide) // the real terminal cursor is used instead, see setCursor
-	in.Prompt = ""
-	in.Placeholder = "Nhắn tin…"
-	in.PlaceholderStyle = fg(cMuted)
-	in.TextStyle = fg(cFg)
+	want := side
+	if side == railW { // saved folded: unfolding goes back to the default width
+		want = sideDef
+	}
+	in := editor{Placeholder: "Nhắn tin…   :emoji · @nhắc tên"} // the real terminal cursor shows where typing goes, see setCursor
 	s := textinput.New()
 	s.Cursor.SetMode(cursor.CursorHide)
 	s.Prompt = " "
@@ -208,9 +245,9 @@ func newModel(ctx context.Context, api *tg.Client, events <-chan tea.Msg, cfg co
 	s.TextStyle = fg(cFg)
 	s.Focus() // start in the search box
 	return model{
-		ctx: ctx, api: api, events: events, cfg: cfg, side: side, focused: true, searching: true,
+		ctx: ctx, api: api, events: events, cfg: cfg, side: side, sideWant: want, folded: side == railW, focused: true, searching: true,
 		msgs: map[string][]line{}, more: map[string]bool{}, detached: map[string]bool{}, told: map[string]bool{}, thumbs: map[int]*thumb{},
-		archived: map[string]bool{}, drafts: map[string]string{}, pins: map[string]string{}, vp: viewport.New(0, 0), in: in, search: s,
+		archived: map[string]bool{}, drafts: map[string]string{}, pins: map[string][]pinned{}, pinAt: map[string]int{}, vp: viewport.New(0, 0), in: in, search: s,
 	}
 }
 
@@ -246,7 +283,7 @@ func (m model) topicsCmd(c chat) tea.Cmd {
 	ctx, api := m.ctx, m.api
 	return func() tea.Msg {
 		ts, err := loadTopics(ctx, api, c.peer)
-		return topicsMsg{c.key, ts, err}
+		return topicsMsg{key: c.key, topics: ts, err: err}
 	}
 }
 
@@ -396,7 +433,141 @@ func (m *model) visible() []int {
 			out = append(out, i)
 		}
 	}
+	if q != "" {
+		for j := range m.found { // indexes past the chats are search results (chatAt, pick)
+			out = append(out, len(m.chats)+j)
+		}
+	}
 	return out
+}
+
+// chatAt is entry i of visible(): a chat of the list, or a server search result.
+func (m *model) chatAt(i int) chat {
+	if i < len(m.chats) {
+		return m.chats[i]
+	}
+	return m.found[i-len(m.chats)]
+}
+
+// pick turns entry i of visible() into an index of m.chats: a search result joins the list first.
+func (m *model) pick(i int) int {
+	if i < len(m.chats) {
+		return i
+	}
+	c := m.found[i-len(m.chats)]
+	m.found = nil
+	if j := m.index(c.key); j >= 0 { // arrived in the list meanwhile
+		return j
+	}
+	// shortcut: a channel opened this way is not registered with the updates manager (no pts known), so
+	// its live messages may be late; reopening the app tracks it once it is in the dialogs.
+	c.last = ""
+	m.chats = placed(m.chats, c, -1)
+	return m.index(c.key)
+}
+
+const (
+	peoplePause = 400 * time.Millisecond // typing pause before asking the server for people
+	peopleMin   = 3                      // shorter queries are not sent (Telegram refuses or floods them)
+)
+
+// peopleCheck runs after the search text changed: drops old server results and asks again after a pause.
+func (m *model) peopleCheck() tea.Cmd {
+	m.found = nil
+	m.fseq++
+	q := strings.TrimPrefix(strings.TrimSpace(m.search.Value()), "@")
+	if m.api == nil || len([]rune(q)) < peopleMin {
+		return nil
+	}
+	seq := m.fseq
+	return tea.Tick(peoplePause, func(time.Time) tea.Msg { return peopleTick{seq} })
+}
+
+func (m *model) onPeopleTick(t peopleTick) tea.Cmd {
+	if t.seq != m.fseq || !m.filtering() {
+		return nil
+	}
+	ctx, api, q := m.ctx, m.api, strings.TrimPrefix(strings.TrimSpace(m.search.Value()), "@")
+	return func() tea.Msg {
+		found, err := searchPeople(ctx, api, q)
+		return peopleMsg{t.seq, found, err}
+	}
+}
+
+func (m *model) onPeople(r peopleMsg) tea.Cmd {
+	if r.seq != m.fseq || !m.filtering() {
+		return nil
+	}
+	if r.err != nil {
+		return m.toastCmd("tìm trên Telegram lỗi: " + errText(r.err))
+	}
+	m.found = nil
+	for _, c := range r.found {
+		if m.index(c.key) < 0 && !m.archived[c.key] {
+			m.found = append(m.found, c)
+		}
+	}
+	m.fixTop()
+	return nil
+}
+
+// onReadIn follows a read made on another device (the phone): the badge drops to what is still unread.
+// A forum's own count is not used (it is not lowered when topics are read, see sumUnread): its topics are
+// fetched again instead.
+func (m *model) onReadIn(ev readInMsg) tea.Cmd {
+	i := m.index(ev.key)
+	if i < 0 {
+		return m.wait()
+	}
+	c := &m.chats[i]
+	if c.forum {
+		if ev.topic == 0 && c.topics != nil {
+			return m.wait() // the forum-wide update; the topic ones follow and carry the change
+		}
+		cmd := m.topicsCmd(*c)
+		return tea.Batch(m.wait(), func() tea.Msg {
+			t, _ := cmd().(topicsMsg)
+			t.quiet = true
+			return t
+		})
+	}
+	c.unread = max(0, ev.unread)
+	return m.wait()
+}
+
+// onReadOut moves the read mark of our messages (✓✓) forward and redraws when the chat is open.
+func (m *model) onReadOut(ev readOutMsg) tea.Cmd {
+	i := m.index(ev.key)
+	if i < 0 {
+		return m.wait()
+	}
+	c := &m.chats[i]
+	if ev.topic > 0 {
+		for j := range c.topics {
+			if c.topics[j].id == ev.topic {
+				c.topics[j].readOut = max(c.topics[j].readOut, ev.id)
+			}
+		}
+	} else {
+		c.readOut = max(c.readOut, ev.id)
+	}
+	if c.key == m.cur {
+		m.render()
+	}
+	return m.wait()
+}
+
+// readOut is how far the other side read our messages in the open view.
+func (m *model) readOut() int {
+	c := m.curChat()
+	if c == nil {
+		return 0
+	}
+	// shortcut: General (id 1) is assumed to follow the group's own mark; not checked against a real forum
+	if t := m.topicOf(c); hasTopics(c) && t != nil && t.id != 1 {
+		return t.readOut
+	}
+	return c.readOut
 }
 
 func (m *model) listRows() int { return max((m.h-1-listY0)/itemRows, 1) }
@@ -426,7 +597,7 @@ func (m *model) msgY() int {
 	if c := m.curChat(); c != nil && hasTopics(c) {
 		y += 2
 	}
-	if m.pins[m.mk()] != "" {
+	if len(m.pins[m.mk()]) > 0 {
 		y++ // the pinned message row
 	}
 	return y
@@ -439,6 +610,8 @@ func (m *model) barText() string {
 		return m.prompt
 	case len(m.mc) > 0:
 		return mentionBar(m.mc, m.msel)
+	case len(m.ec) > 0:
+		return emojiBar(m.ec, m.esel)
 	case m.ms != nil:
 		return m.msBar()
 	case m.edit != nil:
@@ -481,7 +654,7 @@ func (m *model) leave() {
 		}
 	}
 	m.reply, m.edit, m.fwd, m.react, m.delID, m.prompt, m.browse, m.attach = nil, nil, nil, nil, 0, "", false, nil
-	m.mactive, m.mc, m.pend, m.ms = false, nil, nil, nil
+	m.mactive, m.mc, m.pend, m.ms, m.ec = false, nil, nil, nil, nil
 	if mk := m.mk(); m.detached[mk] { // an old stretch is not kept: the chat opens at its end next time
 		delete(m.detached, mk)
 		delete(m.msgs, mk)
@@ -496,18 +669,15 @@ func (m *model) arrive() {
 }
 
 func (m *model) layout() {
-	rows := m.msgY() + composeRow + 1 // + the keys bar
+	rows := m.msgY() + m.in.Height() + 2 + 1 // the bordered message box, the keys bar
 	if m.barText() != "" {
 		rows++
 	}
 	m.vp.Width = max(m.w-m.side-1, 10)
 	m.vp.Height = max(m.h-rows, 1)
-	m.in.Width = max(m.vp.Width-9-m.btnW(), 1)
-	m.search.Width = max(m.side-7, 1)
-}
-
-func (m *model) clampSide() {
-	m.side = max(sideMin, min(m.side, sideMax, m.w-minRight))
+	m.in.SetWidth(m.vp.Width - 9 - m.btnW())
+	m.inH = m.in.Height()
+	m.search.Width = max(m.side-8-ansi.StringWidth(keyCap("ctrl+k")), 1) // margins, padding, prompt and the key cap
 }
 
 func (m model) windowTitle() string {
@@ -545,6 +715,19 @@ func osc(title, body string) string {
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	cmd := m.update(msg)
+	if was := m.side; m.w > 0 { // searching opens the folded list, picking a chat folds it again
+		if m.fitSide(); m.side != was {
+			m.layout()
+			m.render()
+		}
+	}
+	if m.w > 0 && m.in.Height() != m.inH { // the message box grew or shrank: the message view gives or takes the rows
+		bottom := m.vp.AtBottom()
+		m.layout()
+		if bottom {
+			m.vp.GotoBottom()
+		}
+	}
 	if t := m.windowTitle(); t != m.title {
 		m.title = t
 		cmd = tea.Batch(cmd, tea.SetWindowTitle(t))
@@ -557,7 +740,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 		drawnID.Store(0) // a resize repaints everything: a painted picture must be painted again
-		m.clampSide()
+		m.fitSide()
 		m.layout()
 		m.render()
 		m.fixTop()
@@ -608,6 +791,10 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		if msg.err != nil {
 			m.err = "tải topic lỗi: " + msg.err.Error()
 		}
+		if msg.err != nil && msg.quiet {
+			return nil // keep what we have; a background refresh failing is not worth a message
+		}
+		was := c.topic
 		c.topics = append([]topic{}, msg.topics...) // non-nil: loaded, even if empty
 		c.unread = sumUnread(c.topics)
 		if m.topicOf(c) == nil {
@@ -616,7 +803,7 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 				c.topic = c.topics[0].id
 			}
 		}
-		if c.key == m.cur {
+		if c.key == m.cur && (!msg.quiet || c.topic != was) {
 			return m.enter(c)
 		}
 
@@ -711,6 +898,14 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		return m.onAct(msg)
 	case mentionTick:
 		return m.onMentionTick(msg)
+	case peopleTick:
+		return m.onPeopleTick(msg)
+	case peopleMsg:
+		return m.onPeople(msg)
+	case readOutMsg:
+		return m.onReadOut(msg)
+	case readInMsg:
+		return m.onReadIn(msg)
 	case mentionMsg:
 		return m.onMention(msg)
 	case pickedMsg:
@@ -722,11 +917,12 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 			m.stage(msg.paths)
 		}
 	case pinMsg:
-		if msg.text == "" {
+		if len(msg.list) == 0 {
 			delete(m.pins, msg.mk)
 		} else {
-			m.pins[msg.mk] = clean(msg.text)
+			m.pins[msg.mk] = msg.list
 		}
+		m.pinAt[msg.mk] = 0
 		if msg.mk == m.mk() {
 			m.layout()
 			m.render()
@@ -768,6 +964,7 @@ func indexOfID(ls []line, id int) int {
 
 // open shows chat i. A forum needs its topics first; enter() then loads the topic's messages.
 func (m *model) open(i int) tea.Cmd {
+	i = m.pick(i)
 	m.leave()
 	c := &m.chats[i]
 	m.cur, m.err, m.note = c.key, "", ""
@@ -945,6 +1142,9 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return tea.Quit
 	}
 	m.clearSel()
+	if m.menu != nil {
+		return m.menuKey(s)
+	}
 	if m.help {
 		return m.helpKey(s)
 	}
@@ -985,6 +1185,9 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	if len(m.mc) > 0 && m.mentionKey(s) {
 		return nil
 	}
+	if len(m.ec) > 0 && m.emojiKey(s) {
+		return nil
+	}
 	switch s {
 	case "ctrl+b":
 		return m.startBrowse(len(m.lines()) - 1)
@@ -1009,6 +1212,7 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 	}
 	var c tea.Cmd
 	m.in, c = m.in.Update(k)
+	m.emojiCheck()
 	return tea.Batch(c, m.mentionCheck())
 }
 
@@ -1208,6 +1412,7 @@ func (m *model) searchKey(k tea.KeyMsg) tea.Cmd {
 		m.search, c = m.search.Update(k)
 		if m.search.Value() != before {
 			m.sel, m.top = 0, 0
+			return tea.Batch(c, m.peopleCheck())
 		}
 		return c
 	}
@@ -1220,6 +1425,7 @@ func (m *model) startSearch(clear bool) {
 	m.searching, m.browse = true, false
 	if clear {
 		m.search.SetValue("")
+		m.found = nil
 	}
 	m.sel, m.top = 0, 0
 	m.search.Focus()
@@ -1230,6 +1436,8 @@ func (m *model) startSearch(clear bool) {
 // stopSearch clears the query and moves the cursor to the message box, once a chat is open.
 func (m *model) stopSearch() {
 	m.search.SetValue("")
+	m.found = nil
+	m.fseq++
 	m.sel = 0
 	if m.cur == "" { // nothing to type into yet: stay in the search box
 		return
@@ -1294,22 +1502,49 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 	if m.viewer != nil {
 		return nil
 	}
+	if m.menu != nil {
+		if cmd, done := m.menuMouse(e); done {
+			return cmd
+		}
+	}
 	if e.Action == tea.MouseActionMotion && e.Button == tea.MouseButtonNone && !m.drag && !m.txt.on {
+		m.railHot = 0
+		if m.rail && e.X < m.side {
+			m.railHot = e.Y // the name of the tile shows next to the rail
+		}
 		m.hoverAt(e)
+		return nil
+	}
+	if e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonRight && e.X < m.side && e.Y >= listY0 { // a chat in the list
+		vis := m.visible()
+		if p := m.top + (e.Y-listY0)/itemRows; p < len(vis) && vis[p] < len(m.chats) {
+			m.openChatMenu(m.chats[vis[p]], e.X, e.Y)
+		}
+		return nil
+	}
+	if e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonRight && e.X > m.side {
+		m.openMenu(e.X, e.Y)
 		return nil
 	}
 	press := e.Action == tea.MouseActionPress && e.Button == tea.MouseButtonLeft
 	switch {
-	case press && e.X == m.side: // the divider
+	case press && e.X == m.side && (!m.rail || m.folded): // the divider; a rail folded by a narrow window does not drag (no room to unfold)
 		m.drag = true
 	case m.drag && e.Action == tea.MouseActionMotion:
-		m.side = e.X
-		m.clampSide()
+		// past the narrowest list the drag folds it into initials, like Telegram; back out unfolds it
+		if m.folded = e.X < sideMin-foldSnap; !m.folded {
+			m.sideWant = e.X
+		}
+		m.fitSide()
 		m.layout()
 		m.render()
 	case m.drag && e.Action == tea.MouseActionRelease:
 		m.drag = false
-		saveSide(m.side)
+		if m.folded {
+			saveSide(railW)
+		} else {
+			saveSide(m.sideWant)
+		}
 	case m.txt.on && e.Action == tea.MouseActionMotion:
 		m.dragSel(e)
 	case m.txt.on && e.Action == tea.MouseActionRelease:
@@ -1329,9 +1564,15 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 		} else if e.Y >= listY0 {
 			vis := m.visible()
 			if p := m.top + (e.Y-listY0)/itemRows; p < len(vis) {
+				if m.fwd != nil { // choosing where to forward: the click picks the target
+					m.sel = p
+					return m.forwardTo(vis)
+				}
 				return m.open(vis[p])
 			}
 		}
+	case press && e.Y == m.msgY()-1 && len(m.pins[m.mk()]) > 0 && m.curChat() != nil: // the pinned row
+		return m.jumpPin()
 	case press && e.Y >= headRows && e.Y < headRows+2 && m.curChat() != nil && hasTopics(m.curChat()):
 		c := m.curChat()
 		for _, sp := range topicSpans(c, m.vp.Width-4) {
@@ -1345,7 +1586,18 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 	case press && e.Y >= m.msgY()+m.vp.Height && e.Y < m.h-1 && m.curChat() != nil: // the input box and the row above it
 		m.focusInput()
 		if x0 := m.side + 1 + 3 + max(m.vp.Width-6, 4) - m.btnW(); m.btnW() > 0 && e.Y == m.h-3 && e.X >= x0 && e.X < x0+m.btnW() {
-			return m.pickCmd()
+			clip, _ := m.buttonWidths()
+			switch at := e.X - x0 - m.buttonLead(); {
+			case at < 0: // the blank before the buttons
+			case at < clip+1: // the paperclip and the space after it
+				return m.pickCmd()
+			default:
+				return m.send()
+			}
+		}
+		if top := m.h - 2 - m.in.Height(); e.Y >= top && e.Y < m.h-2 { // a click in the text moves the cursor there
+			m.in.ClickAt(e.Y-top, e.X-(m.side+1+2+1+1))
+			m.emojiCheck()
 		}
 	case press:
 		m.beginSel(e)
@@ -1372,19 +1624,19 @@ func (m *model) focusInput() {
 // clickMessage highlights the message (browse mode, so e/d/r/f/o work on it straight away); a photo or file
 // opens. Enter then makes it the reply target.
 func (m *model) clickMessage(x, y int) tea.Cmd {
-	top := m.msgY()
-	if y < top || y >= top+m.vp.Height || len(m.lineAt) == 0 {
+	i, ok := m.msgIndexAt(y)
+	if !ok {
 		return nil
 	}
-	row, i := m.vp.YOffset+y-top, 0
+	row := m.vp.YOffset + y - m.msgY()
 	for _, h := range m.hits { // a copy button wins over selecting the message
 		if h.row == row && x-m.side-1 >= h.x0 && x-m.side-1 < h.x1 {
 			return copyCmd(h.text, "khối code")
 		}
 	}
-	for j, at := range m.lineAt {
-		if at <= row {
-			i = j
+	for _, q := range m.quoteAt { // so does a reply quote: it leads to the message replied to
+		if q.row == row {
+			return m.jumpTo(q.id)
 		}
 	}
 	if m.searching {

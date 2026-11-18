@@ -310,13 +310,7 @@ var inlineCode = lipgloss.NewStyle().Foreground(lipgloss.Color(cFg)).Background(
 
 // body draws the text of a message: wrapped plain text, or, when it has code, paragraphs and code blocks.
 func (m *model) body(l line, bw, cw int) ([]string, []hitSpec) {
-	style := func(s string) string {
-		if l.out { // keep the colour after a link or a muted piece ended with a reset
-			r, g, b := rgb(cAccent)
-			return fg(cAccent).Render(strings.ReplaceAll(s, "\x1b[0m", fmt.Sprintf("\x1b[0m\x1b[38;2;%d;%d;%dm", r, g, b)))
-		}
-		return s
-	}
+	style := func(s string) string { return s } // own messages are marked by their background, not their colour
 	wrap := func(s string) []string {
 		var out []string
 		for _, b := range strings.Split(ansi.Wrap(s, bw, ""), "\n") {

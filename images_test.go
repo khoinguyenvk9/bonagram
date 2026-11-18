@@ -129,7 +129,10 @@ func TestLocationCardLinksToTheMap(t *testing.T) {
 		}
 	}
 	url := "https://www.google.com/maps?q=10.770000,106.690000"
-	if sp := linkSpans(0, rows[len(rows)-2]); len(sp) != 1 || sp[0].url != url {
+	if len(rows) != 1 {
+		t.Fatalf("a location is one row: %d", len(rows))
+	}
+	if sp := linkSpans(0, rows[0]); len(sp) != 1 || sp[0].url != url {
 		t.Fatalf("the map row should be a link: %+v", sp)
 	}
 	if ls := linksOf(msg); len(ls) != 1 || ls[0] != url {

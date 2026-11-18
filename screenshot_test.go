@@ -18,8 +18,8 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 	"github.com/gotd/td/tg"
+	"github.com/muesli/termenv"
 )
 
 const shotW, shotH = 116, 50
@@ -58,10 +58,11 @@ func demoModel(t *testing.T) *actionModel {
 	a := &actionModel{mm: m, rec: rec}
 	a.send(tea.WindowSizeMsg{Width: shotW, Height: shotH})
 	a.send(tea.FocusMsg{})
-	at := func(h, mi int) time.Time { return time.Date(2026, 11, 17, h, mi, 0, 0, time.Local) }
+	y, mo, d := time.Now().Date() // today, so the picture always reads "Hôm nay" and today's times
+	at := func(h, mi int) time.Time { return time.Date(y, mo, d, h, mi, 0, 0, time.Local) }
 	a.send(chatsMsg{chats: []chat{
 		{key: "u1", title: "Minh Anh", last: "Tối nay họp lúc mấy giờ nhỉ?", date: int(at(15, 5).Unix()), peer: &tg.InputPeerUser{UserID: 1}},
-		{key: "c9", title: "Nhóm Dev Go Việt Nam", last: "Hà: [file] bao-cao-hieu-nang.pdf", date: int(at(15, 9).Unix()), peer: &tg.InputPeerChannel{ChannelID: 9}, pinned: true},
+		{key: "c9", title: "Nhóm Dev Go Việt Nam", last: "Nhung: [file] bao-cao-hieu-nang.pdf", date: int(at(15, 9).Unix()), peer: &tg.InputPeerChannel{ChannelID: 9}, pinned: true},
 		{key: "u2", title: "Lan Phương", last: "Bạn: ok nhé, mai gặp", date: int(at(9, 32).Unix()), peer: &tg.InputPeerUser{UserID: 2}},
 		{key: "c3", title: "Thông báo công ty", last: "Hành chính: nghỉ lễ 2/9", unread: 5, date: int(at(8, 0).Add(-24 * time.Hour).Unix()), peer: &tg.InputPeerChannel{ChannelID: 3}},
 		{key: "u4", title: "Quang Huy", last: "[location] 10.77690, 106.70090", date: int(at(8, 0).Add(-72 * time.Hour).Unix()), peer: &tg.InputPeerUser{UserID: 4}},
@@ -88,7 +89,7 @@ func demoModel(t *testing.T) *actionModel {
 	t5 := "Đã thêm, mọi người xem lại giúp. Tài liệu ở đây"
 	o5, l5 := u16(t5, "ở đây")
 	pdf := docMsg(7, "bao-cao-hieu-nang.pdf", "application/pdf", 2400000)
-	pdf.Message = "Báo cáo hiệu năng tuần này"
+	pdf.Message = "Gửi cả nhà báo cáo hiệu năng tuần này, có so sánh với tuần trước nhé"
 	geo := &tg.Message{ID: 8, Media: &tg.MessageMediaGeo{Geo: &tg.GeoPoint{Lat: 10.7769, Long: 106.7009}}}
 	l := func(id int, from, sender string, h, mi int, m *tg.Message, out bool, reply int) line {
 		text := strings.TrimSpace(m.Message + " " + mediaTag(m.Media))
@@ -100,13 +101,13 @@ func demoModel(t *testing.T) *actionModel {
 		l(3, "Bình", "u11", 14, 59, msg(3, t3, &tg.MessageEntityPre{Offset: o3, Length: len([]rune(t3)) - o3, Language: "go"}), false, 0),
 		l(4, "Bạn", "", 15, 1, msg(4, t4), true, 2),
 		l(5, "Bình", "u11", 15, 3, msg(5, t5, &tg.MessageEntityTextURL{Offset: o5, Length: l5, URL: "https://go.dev/doc"}), false, 4),
-		l(7, "Hà", "u12", 15, 9, pdf, false, 0),
+		l(7, "Nhung", "u13", 15, 9, pdf, false, 0),
 		l(8, "Quang Huy", "u4", 15, 10, geo, false, 0),
 	}
 	ls[1].reacts = []reaction{{"♥", 3, true}, {"👍", 1, false}}
 	ls[4].mentioned = true
 	a.send(histMsg{mk: "c9", key: "c9", lines: ls})
-	a.send(pinMsg{mk: "c9", text: "Quy định nhóm: không spam, gửi code trong khối code, hỏi rõ ràng"})
+	a.send(pinMsg{mk: "c9", list: []pinned{{1, "Quy định nhóm: không spam, gửi code trong khối code, hỏi rõ ràng"}}})
 	return a
 }
 

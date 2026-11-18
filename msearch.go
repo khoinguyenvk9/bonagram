@@ -41,6 +41,7 @@ type (
 		id      int
 		lines   []line
 		err     error
+		jump    bool // asked by a click on the pinned row or a reply quote, not by the search
 	}
 )
 
@@ -147,7 +148,7 @@ func (m *model) msKey(k tea.KeyMsg) tea.Cmd {
 			}
 			return func() tea.Msg {
 				ls, err := loadAround(ctx, api, p, tp, l.id)
-				return aroundMsg{mk, key, l.id, ls, err}
+				return aroundMsg{mk: mk, key: key, id: l.id, lines: ls, err: err}
 			}
 		}
 		if q == "" {
@@ -195,7 +196,10 @@ func (m *model) onAround(a aroundMsg) tea.Cmd {
 		return nil
 	}
 	i := indexOfID(a.lines, a.id)
-	if i < 0 || m.ms == nil || a.mk != m.mk() {
+	if a.jump && i < 0 && a.mk == m.mk() {
+		return m.toastCmd("Không tìm thấy tin gốc, có thể đã bị xoá")
+	}
+	if i < 0 || (m.ms == nil && !a.jump) || a.mk != m.mk() {
 		return nil
 	}
 	m.stopMsgSearch()
@@ -222,7 +226,7 @@ func (m *model) backToLatest() tea.Cmd {
 // renderResults draws the search results in place of the messages.
 func (m *model) renderResults() {
 	s := m.ms
-	m.lineAt, m.hits, m.links, m.nLines = m.lineAt[:0], m.hits[:0], m.links[:0], len(s.res)
+	m.lineAt, m.hits, m.links, m.nLines, m.quoteAt = m.lineAt[:0], m.hits[:0], m.links[:0], len(s.res), m.quoteAt[:0]
 	rows := make([]string, len(s.res))
 	for i, l := range s.res {
 		text := flat(l.text)
@@ -241,7 +245,7 @@ func (m *model) renderResults() {
 		rows[i] = row
 	}
 	m.rows, m.rowOut = rows, make([]bool, len(rows))
-	m.vp.SetContent(strings.Join(rows, "\n"))
+	m.setContent(rows)
 	switch {
 	case s.sel < m.vp.YOffset:
 		m.vp.SetYOffset(s.sel)

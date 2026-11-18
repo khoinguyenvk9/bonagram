@@ -207,6 +207,7 @@ func loadConfig() config {
 		previewCnt:  num("BONAGRAM_PREVIEW_COUNT", 8, 0, 50),
 		images:      get("BONAGRAM_IMAGES"),
 		fps:         num("BONAGRAM_FPS", 60, 10, 120),
+		icons:       get("BONAGRAM_ICONS") != "off",
 	}
 }
 
@@ -218,8 +219,11 @@ func fileMissing(path string) bool {
 func loadSide() int {
 	b, err := os.ReadFile(filepath.Join(configDir(), "width"))
 	n, err2 := strconv.Atoi(strings.TrimSpace(string(b)))
-	if err != nil || err2 != nil {
+	switch {
+	case err != nil || err2 != nil:
 		return sideDef
+	case n == railW: // folded by dragging the divider all the way left
+		return railW
 	}
 	return max(sideMin, min(sideMax, n))
 }
@@ -281,6 +285,36 @@ func run(ctx context.Context) error {
 	})
 	d.OnNewChannelMessage(func(_ context.Context, e tg.Entities, u *tg.UpdateNewChannelMessage) error {
 		push(toNewMsg(e, u.Message))
+		return nil
+	})
+	// we read messages on another device: the unread count follows
+	d.OnReadHistoryInbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadHistoryInbox) error {
+		if key := peerKey(u.Peer); key != "" {
+			push(readInMsg{key: key, unread: u.StillUnreadCount})
+		}
+		return nil
+	})
+	d.OnReadChannelInbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadChannelInbox) error {
+		push(readInMsg{key: peerKey(&tg.PeerChannel{ChannelID: u.ChannelID}), unread: u.StillUnreadCount})
+		return nil
+	})
+	d.OnReadChannelDiscussionInbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadChannelDiscussionInbox) error {
+		push(readInMsg{key: peerKey(&tg.PeerChannel{ChannelID: u.ChannelID}), topic: u.TopMsgID})
+		return nil
+	})
+	// the other side read our messages: ✓ becomes ✓✓
+	d.OnReadHistoryOutbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadHistoryOutbox) error {
+		if key := peerKey(u.Peer); key != "" {
+			push(readOutMsg{key: key, id: u.MaxID})
+		}
+		return nil
+	})
+	d.OnReadChannelOutbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadChannelOutbox) error {
+		push(readOutMsg{key: peerKey(&tg.PeerChannel{ChannelID: u.ChannelID}), id: u.MaxID})
+		return nil
+	})
+	d.OnReadChannelDiscussionOutbox(func(_ context.Context, _ tg.Entities, u *tg.UpdateReadChannelDiscussionOutbox) error {
+		push(readOutMsg{key: peerKey(&tg.PeerChannel{ChannelID: u.ChannelID}), topic: u.TopMsgID, id: u.ReadMaxID})
 		return nil
 	})
 

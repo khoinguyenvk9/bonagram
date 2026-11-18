@@ -19,11 +19,11 @@ func TestReplyQuotedInGroup(t *testing.T) {
 	a.send(histMsg{mk: "c9", key: "c9", lines: []line{
 		{id: 1, from: "Bình", sender: "u2", text: "đi ăn không", at: now},
 		{id: 2, from: "An", sender: "u1", text: "đi chứ", at: now, replyTo: 1},
-		{id: 3, from: "An", sender: "u1", text: "ok", at: now.Add(time.Hour), replyTo: 50, quote: `Cường: "chiều nay họp"`},
+		{id: 3, from: "An", sender: "u1", text: "ok", at: now.Add(time.Hour), replyTo: 50, quote: "Cường\x00chiều nay họp"},
 		{id: 4, from: "An", sender: "u1", text: "nữa", at: now.Add(2 * time.Hour), replyTo: 51},
 	}})
 	v := plainView(a.m())
-	for _, want := range []string{`↪ Bình: "đi ăn không"`, `↪ Cường: "chiều nay họp"`, "↪ trả lời một tin nhắn cũ"} {
+	for _, want := range []string{"│ Bình  đi ăn không", "│ Cường  chiều nay họp", "│ trả lời một tin nhắn cũ"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q in:\n%s", want, v)
 		}
@@ -42,7 +42,7 @@ func TestFillQuotesAsksOnceForOlderMessages(t *testing.T) {
 	if !ok || len(req.ID) != 1 || rec.count() != 1 {
 		t.Fatalf("one lookup of the one missing message (50) expected: %+v (%d calls)", rec.last(t), rec.count())
 	}
-	if want := `Khôi Nguyễn: "bản gốc"`; ls[0].quote != want || ls[1].quote != want || ls[2].quote != "" {
+	if want := "Khôi Nguyễn\x00bản gốc"; ls[0].quote != want || ls[1].quote != want || ls[2].quote != "" {
 		t.Fatalf("quotes: %q %q %q", ls[0].quote, ls[1].quote, ls[2].quote)
 	}
 }
@@ -209,5 +209,46 @@ func TestHoverUnderlinesAndClickOpensLink(t *testing.T) {
 	a.run(mouse(tea.MouseActionRelease, tea.MouseButtonLeft, 2))
 	if opened != "https://example.com" {
 		t.Fatalf("a click should open the link, opened %q", opened)
+	}
+}
+
+func TestClickQuoteJumpsToTheOriginal(t *testing.T) {
+	a := newGroupModel(t, "c9", &tg.InputPeerChannel{ChannelID: 9, AccessHash: 1})
+	now := time.Now()
+	a.send(histMsg{mk: "c9", key: "c9", lines: []line{
+		{id: 1, from: "Bình", sender: "u2", text: "đi ăn không", at: now},
+		{id: 2, from: "An", sender: "u1", text: "đi chứ", at: now, replyTo: 1},
+		{id: 3, from: "An", sender: "u1", text: "ok", at: now.Add(time.Hour), replyTo: 50, quote: "Cường\x00chiều nay họp"},
+	}})
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	click := func(n int) tea.Cmd {
+		t.Helper()
+		m := a.m()
+		if n >= len(m.quoteAt) {
+			t.Fatalf("quote %d not drawn: %+v", n, m.quoteAt)
+		}
+		y := m.msgY() + m.quoteAt[n].row - m.vp.YOffset
+		return a.send(tea.MouseMsg{X: m.side + 10, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	}
+
+	a.run(click(0)) // the original is loaded: selected at once
+	if m := a.m(); !m.browse || m.lines()[m.bsel].id != 1 {
+		t.Fatalf("a click on the quote selects the message replied to: bsel=%d", m.bsel)
+	}
+
+	a.send(tea.KeyMsg{Type: tea.KeyEsc})
+	a.rec.msgs = []tg.MessageClass{
+		&tg.Message{ID: 51, Message: "sau", PeerID: &tg.PeerChannel{ChannelID: 9}},
+		&tg.Message{ID: 50, Message: "chiều nay họp", PeerID: &tg.PeerChannel{ChannelID: 9}},
+	}
+	a.run(click(1)) // an older original: the messages around it are read
+	if m := a.m(); !m.detached["c9"] || m.lines()[m.bsel].id != 50 {
+		t.Fatalf("an older original opens with the messages around it: detached=%v", m.detached["c9"])
+	}
+
+	a.rec.msgs = nil // the original was deleted
+	a.send(aroundMsg{mk: "c9", key: "c9", id: 77, jump: true})
+	if !strings.Contains(a.m().toast, "tin gốc") {
+		t.Fatalf("a deleted original is explained: %q", a.m().toast)
 	}
 }
