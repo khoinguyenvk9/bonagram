@@ -376,33 +376,35 @@ set -g mouse on
 | Go heap holding the 500 messages | 1.8 MB | 2.7 MB | 3.1 MB |
 
 <details>
-<summary>Memory, CPU and disk measured with a real account (v0.2.1)</summary>
+<summary>Memory, CPU and disk measured with a real account (v0.3.0 against v0.2.1)</summary>
 
-Measured on macOS (Apple Silicon) with a real account, inside tmux (images as colour blocks), thumbnails on (`BONAGRAM_PREVIEWS=1`), Saved Messages holding many photos and videos. The v0.1.0 column is an earlier measurement (117 chats).
+Measured on 2026-11-18 on macOS (Apple Silicon) with a real account, inside tmux (images as colour blocks), thumbnails on (`BONAGRAM_PREVIEWS=1`), Saved Messages open (many photos and videos). Both versions were measured back to back, same steps, same data.
 
-| Memory | RSS | Physical footprint | v0.1.0 (RSS / physical) |
-|---|---|---|---|
-| Just started, chat list loaded | 24.9 MB | 12 MB | 26.5 / 15 MB |
-| One chat open (40 messages, with thumbnails) | 60.1 MB | 18 MB | 26.8 / 15 MB |
-| Scrolled back to 500 messages | 60.8 MB | 20 MB | 28.7 / 16 MB |
-
-RSS includes the system's shared libraries and the memory Go keeps after decoding thumbnails; the physical footprint (`footprint`) is what the system charges to the app alone, the better figure. With thumbnails off the numbers are close to the v0.1.0 column.
-
-| CPU (percent of one core) | v0.2.1 | v0.1.0 |
+| Memory (RSS / physical footprint) | v0.3.0 | v0.2.1 |
 |---|---|---|
-| Start (connect, load the chat list) | about 0.16 s of CPU | about 0.1 s |
-| Idle | about 0.65% | about 0.7% |
-| Continuous scrolling (1,000 steps in 12 s, 500 messages) | about 9% | about 8% |
+| Just started, chat list loaded | 25.4 / 13 MB | 25.7 / 13 MB |
+| 10 s after opening the chat (with thumbnails) | 60.2 / 48 MB¹ | 58.9 / 18 MB |
+| Scrolled back to the 500-message cap | 27.7 / 16 MB | 29.8 / 18 MB |
 
-The app draws at most 60 frames per second; `BONAGRAM_FPS=30` brings idle CPU to about 0.4% (20 frames: 0.3%), at the price of slightly less smooth typing and scrolling. Quitting with `Ctrl+Q` left no process behind in 30 tries.
+¹ Mostly garbage left by decoding the thumbnails (the live heap was about 19 MB). v0.3.0 does nothing while idle, so Go collects and returns that memory at the next thing you do; v0.2.1 redrew every half second for a blinking cursor and so collected all the time. Not a leak: after scrolling, v0.3.0 uses less memory than v0.2.1.
+
+RSS includes the system's shared libraries; the physical footprint (`footprint`) is what the system charges to the app alone, the better figure. With thumbnails off, opening a chat stays close to the start-up numbers.
+
+| CPU (percent of one core) | v0.3.0 | v0.2.1 |
+|---|---|---|
+| Start (first 10 s) | 0.16 s of CPU | 0.16 s of CPU |
+| Idle (two 60 s samples) | 0.78% and 1.10% | 0.80% and 1.08% |
+| Continuous scrolling (1,000 steps in about 24 s, 500 messages loaded) | 4.0% | 5.1% |
+
+Both versions quit cleanly with `Ctrl+Q`, leaving no process behind. The app draws at most 60 frames per second; `BONAGRAM_FPS=30` lowers idle CPU (measured on v0.2.1: from about 0.65% to 0.4%) at the price of slightly less smooth typing and scrolling.
 
 | Disk | |
 |---|---|
 | The executable (built with `-s -w`) | about 18 MB |
 | `~/.config/bonagram/` | a few tens of KB |
-| Cache of viewed images and files (`~/Library/Caches/bonagram/` on macOS, `~/.cache/bonagram/` on Linux) | depends on how many you view; safe to delete at any time |
+| Cache of viewed images and files (`~/Library/Caches/bonagram/` on macOS, `~/.cache/bonagram/` on Linux) | depends on what you view (4.5 MB at the time); safe to delete at any time |
 
-Each case was measured once (runs differ by a few percent); not measured with Kitty images on Ghostty or with accounts of thousands of chats.
+Each case was measured once; idle CPU varies between samples (network, garbage collection). Not measured with Kitty images on Ghostty or with accounts of thousands of chats.
 
 </details>
 

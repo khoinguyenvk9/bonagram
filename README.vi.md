@@ -374,33 +374,35 @@ set -g mouse on
 | Bộ nhớ heap của Go giữ 500 tin | 1,8 MB | 2,7 MB | 3,1 MB |
 
 <details>
-<summary>Bộ nhớ, CPU và dung lượng đo với tài khoản thật (v0.2.1)</summary>
+<summary>Bộ nhớ, CPU và dung lượng đo với tài khoản thật (v0.3.0 so với v0.2.1)</summary>
 
-Đo trên macOS (Apple Silicon), tài khoản thật, trong tmux (ảnh vẽ bằng khối màu), bật ảnh nhỏ (`BONAGRAM_PREVIEWS=1`), Saved Messages có nhiều ảnh và video. Cột v0.1.0 là số đo trước đây (117 chat).
+Đo ngày 18/11/2026 trên macOS (Apple Silicon) với tài khoản thật, trong tmux (ảnh vẽ bằng khối màu), bật ảnh nhỏ (`BONAGRAM_PREVIEWS=1`), mở Saved Messages (nhiều ảnh và video). Hai bản đo liền nhau, cùng kịch bản và cùng dữ liệu.
 
-| Bộ nhớ | RSS | Bộ nhớ vật lý | v0.1.0 (RSS / vật lý) |
-|---|---|---|---|
-| Vừa mở, danh sách chat đã tải | 24,9 MB | 12 MB | 26,5 / 15 MB |
-| Mở một chat (40 tin, có ảnh nhỏ) | 60,1 MB | 18 MB | 26,8 / 15 MB |
-| Đã cuộn tới 500 tin | 60,8 MB | 20 MB | 28,7 / 16 MB |
-
-RSS tính cả thư viện dùng chung của hệ thống và bộ nhớ Go giữ lại sau khi giải mã ảnh nhỏ; cột bộ nhớ vật lý (`footprint`) là phần tính riêng cho app, đáng tin hơn. Tắt ảnh nhỏ thì số gần với cột v0.1.0.
-
-| CPU (phần trăm một nhân) | v0.2.1 | v0.1.0 |
+| Bộ nhớ (RSS / bộ nhớ vật lý) | v0.3.0 | v0.2.1 |
 |---|---|---|
-| Khởi động (kết nối, tải danh sách chat) | khoảng 0,16 giây CPU | khoảng 0,1 giây |
-| Để yên | khoảng 0,65% | khoảng 0,7% |
-| Cuộn liên tục (1.000 lần trong 12 giây, 500 tin) | khoảng 9% | khoảng 8% |
+| Vừa mở, danh sách chat đã tải | 25,4 / 13 MB | 25,7 / 13 MB |
+| 10 giây sau khi mở chat (có ảnh nhỏ) | 60,2 / 48 MB¹ | 58,9 / 18 MB |
+| Đã cuộn tới giới hạn 500 tin | 27,7 / 16 MB | 29,8 / 18 MB |
 
-App vẽ tối đa 60 khung hình mỗi giây; `BONAGRAM_FPS=30` hạ CPU lúc để yên xuống khoảng 0,4% (20 khung hình: 0,3%), đổi lại gõ và cuộn kém mượt hơn một chút. Thoát bằng `Ctrl+Q` không để lại tiến trình nào trong 30 lần thử.
+¹ Phần lớn là rác còn lại sau khi giải mã ảnh nhỏ (heap thật lúc đó khoảng 19 MB). v0.3.0 không làm gì khi để yên, nên Go chỉ dọn rác và trả bộ nhớ khi bạn thao tác tiếp; v0.2.1 vẽ lại mỗi nửa giây cho con trỏ nhấp nháy nên dọn rác liên tục. Không phải rò rỉ: sau khi cuộn, v0.3.0 dùng ít bộ nhớ hơn v0.2.1.
+
+RSS tính cả thư viện dùng chung của hệ thống; bộ nhớ vật lý (`footprint`) là phần hệ điều hành tính riêng cho app, đáng tin hơn. Tắt ảnh nhỏ thì bộ nhớ khi mở chat gần với lúc vừa mở app.
+
+| CPU (phần trăm một nhân) | v0.3.0 | v0.2.1 |
+|---|---|---|
+| Khởi động (10 giây đầu) | 0,16 giây CPU | 0,16 giây CPU |
+| Để yên (hai lần đo, mỗi lần 60 giây) | 0,78% và 1,10% | 0,80% và 1,08% |
+| Cuộn liên tục (1.000 lần trong khoảng 24 giây, đã tải 500 tin) | 4,0% | 5,1% |
+
+Cả hai bản đều thoát sạch bằng `Ctrl+Q`, không để lại tiến trình. App vẽ tối đa 60 khung hình mỗi giây; `BONAGRAM_FPS=30` giảm CPU lúc để yên (đo ở v0.2.1: từ khoảng 0,65% xuống 0,4%), đổi lại gõ và cuộn kém mượt hơn một chút.
 
 | Dung lượng | |
 |---|---|
 | File chạy (build với `-s -w`) | khoảng 18 MB |
 | `~/.config/bonagram/` | vài chục KB |
-| Cache ảnh và tệp đã xem (`~/Library/Caches/bonagram/` trên macOS, `~/.cache/bonagram/` trên Linux) | tuỳ số ảnh; xoá tay lúc nào cũng được |
+| Cache ảnh và tệp đã xem (`~/Library/Caches/bonagram/` trên macOS, `~/.cache/bonagram/` trên Linux) | tuỳ số ảnh đã xem (lúc đo: 4,5 MB); xoá tay lúc nào cũng được |
 
-Mỗi tình huống đo một lần (lệch vài phần trăm giữa các lần), chưa đo với ảnh Kitty trên Ghostty hay tài khoản có hàng nghìn chat.
+Mỗi tình huống đo một lần; CPU lúc để yên dao động giữa các lần đo (kết nối mạng, dọn rác). Chưa đo với ảnh Kitty trên Ghostty hay tài khoản có hàng nghìn chat.
 
 </details>
 
