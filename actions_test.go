@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/gotd/td/bin"
 	"github.com/gotd/td/telegram/message/peer"
+	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 )
 
@@ -22,19 +24,24 @@ import (
 type recorder struct {
 	mu       sync.Mutex
 	calls    []bin.Encoder
-	reply    tg.UpdatesClass      // what sending a message answers with
-	users    []tg.UserClass       // the members of a group
-	msgs     []tg.MessageClass    // what looking up messages by id answers
-	file     []byte               // what downloading a file answers
-	fileErrs []error              // errors for the next downloads, one each
-	found    *tg.ContactsFound    // what searching people answers
-	topics   []tg.ForumTopicClass // what listing forum topics answers
+	reply    tg.UpdatesClass          // what sending a message answers with
+	users    []tg.UserClass           // the members of a group
+	msgs     []tg.MessageClass        // what looking up messages by id answers
+	file     []byte                   // what downloading a file answers
+	fileErrs []error                  // errors for the next downloads, one each
+	found    *tg.ContactsFound        // what searching people answers
+	topics   []tg.ForumTopicClass     // what listing forum topics answers
+	reactors []tg.MessagePeerReaction // who reacted, for messages.getMessageReactionsList
+	err      error                    // answers every request with this error when set
 }
 
 func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.calls = append(r.calls, in)
+	if r.err != nil {
+		return r.err
+	}
 	if _, ok := in.(*tg.UploadGetFileRequest); ok && len(r.fileErrs) > 0 {
 		err := r.fileErrs[0]
 		r.fileErrs = r.fileErrs[1:]
@@ -57,6 +64,11 @@ func (r *recorder) Invoke(_ context.Context, in bin.Encoder, out bin.Decoder) er
 		box.Bool = &tg.BoolTrue{} // file parts are accepted
 	case *tg.MessagesForumTopics:
 		box.Topics = r.topics
+	case *tg.MessagesMessageReactionsList:
+		box.Reactions, box.Users, box.Count = r.reactors, r.users, len(r.reactors)
+		if len(r.reactors) > reactorsMax {
+			box.Reactions, box.NextOffset = r.reactors[:reactorsMax], "next"
+		}
 	case *tg.ContactsFound:
 		if r.found != nil {
 			*box = *r.found
@@ -75,10 +87,29 @@ func (r *recorder) last(t *testing.T) bin.Encoder {
 	return r.calls[len(r.calls)-1]
 }
 
+// count is how many requests were made, not counting the "typing" notices (typed counts those).
 func (r *recorder) count() int {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return len(r.calls)
+	n := 0
+	for _, c := range r.calls {
+		if _, ok := c.(*tg.MessagesSetTypingRequest); !ok {
+			n++
+		}
+	}
+	return n
+}
+
+func (r *recorder) typed() []*tg.MessagesSetTypingRequest {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var out []*tg.MessagesSetTypingRequest
+	for _, c := range r.calls {
+		if t, ok := c.(*tg.MessagesSetTypingRequest); ok {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 // actionModel is a model with two chats, the first one open with an own message (id 5) and one from Đạt (id 6).
@@ -370,10 +401,10 @@ func TestSendFileRejectsBadPaths(t *testing.T) {
 	rec := &recorder{}
 	api := tg.NewClient(rec)
 	dir := t.TempDir()
-	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir}, "", 0); err == nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir}, "", 0, nil); err == nil {
 		t.Error("a directory must be refused")
 	}
-	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir + "/missing"}, "", 0); err == nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, []string{dir + "/missing"}, "", 0, nil); err == nil {
 		t.Error("a missing file must be refused")
 	}
 	if rec.count() != 0 {
@@ -530,13 +561,13 @@ func TestEventText(t *testing.T) {
 }
 
 func TestPrivateSubtitleIsJustTheUsername(t *testing.T) {
-	if got := chatSubtitle(&chat{key: "u1", username: "lan_vn"}); got != "@lan_vn" {
+	if got := chatSubtitle(&chat{key: "u1", username: "lan_vn"}, time.Now()); got != "@lan_vn" {
 		t.Errorf("with username: %q", got)
 	}
-	if got := chatSubtitle(&chat{key: "u1"}); got != "" {
+	if got := chatSubtitle(&chat{key: "u1"}, time.Now()); got != "" {
 		t.Errorf("without username there is nothing to add: %q", got)
 	}
-	if got := chatSubtitle(&chat{key: "u1", muted: true}); got != "đã tắt tiếng" {
+	if got := chatSubtitle(&chat{key: "u1", muted: true}, time.Now()); got != "đã tắt tiếng" {
 		t.Errorf("muted: %q", got)
 	}
 }
@@ -672,6 +703,14 @@ func TestGroupsKeepKindsApart(t *testing.T) {
 	if fmt.Sprint(sizes) != "[10 2 2 1]" {
 		t.Fatalf("groups of %v, want [10 2 2 1]", sizes)
 	}
+	v := &videoMeta{w: 1, h: 1}
+	sizes = nil
+	for _, g := range groups([]upload{{photo: true}, {video: v}, {}, {video: v}}) {
+		sizes = append(sizes, len(g))
+	}
+	if fmt.Sprint(sizes) != "[2 1 1]" {
+		t.Fatalf("photos and videos share an album, files do not: %v", sizes)
+	}
 }
 
 func TestSendFilesWithCaption(t *testing.T) {
@@ -685,7 +724,7 @@ func TestSendFilesWithCaption(t *testing.T) {
 	docs = append(docs, filepath.Join(dir, "c.pdf"))
 	rec := &recorder{}
 	api := tg.NewClient(rec)
-	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, docs, "xem giúp", 7); err != nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, docs, "xem giúp", 7, nil); err != nil {
 		t.Fatal(err)
 	}
 	req, ok := rec.last(t).(*tg.MessagesSendMediaRequest)
@@ -695,7 +734,7 @@ func TestSendFilesWithCaption(t *testing.T) {
 	if r, ok := req.ReplyTo.(*tg.InputReplyToMessage); !ok || r.ReplyToMsgID != 7 {
 		t.Fatalf("reply target lost: %+v", req.ReplyTo)
 	}
-	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, photos, "hai ảnh", 0); err != nil {
+	if err := sendFiles(context.Background(), api, &tg.InputPeerUser{UserID: 1}, photos, "hai ảnh", 0, nil); err != nil {
 		t.Fatal(err)
 	}
 	al, ok := rec.last(t).(*tg.MessagesSendMultiMediaRequest)
@@ -839,5 +878,62 @@ func TestMentionNotInPrivateChatOrEmail(t *testing.T) {
 	g.typeText("a@kh")
 	if g.rec.count() != 0 {
 		t.Fatal("an e-mail address is not a mention")
+	}
+}
+
+func TestUploadProgress(t *testing.T) {
+	p := newXfer("a.mp4", 400<<20, false)
+	if got := p.text(); !strings.Contains(got, "0%") {
+		t.Fatalf("start: %q", got)
+	}
+	p.Chunk(context.Background(), uploader.ProgressState{ID: 1, Uploaded: 100 << 20})
+	p.Chunk(context.Background(), uploader.ProgressState{ID: 1, Uploaded: 50 << 20}) // parts land out of order
+	p.Chunk(context.Background(), uploader.ProgressState{ID: 2, Uploaded: 100 << 20})
+	if got := p.text(); !strings.Contains(got, "50%") || !strings.Contains(got, "a.mp4") {
+		t.Fatalf("half way: %q", got)
+	}
+	p.Chunk(context.Background(), uploader.ProgressState{ID: 2, Uploaded: 300 << 20})
+	if got := p.text(); !strings.Contains(got, "chờ Telegram") {
+		t.Fatalf("all bytes sent: %q", got)
+	}
+	if fileMax(false) != 2000<<20 || fileMax(true) != 4000<<20 {
+		t.Fatal("limits")
+	}
+}
+
+// A send shows its progress in the title bar until its answer comes back; a file over the limit is refused
+// before anything is uploaded, with the reason on screen.
+func TestSendShowsProgress(t *testing.T) {
+	var mm tea.Model = newTestModel(t)
+	mm, _ = mm.Update(tea.WindowSizeMsg{Width: 120, Height: 24})
+	mm, _ = mm.Update(chatsMsg{chats: []chat{{key: "u1", title: "Đạt", peer: &tg.InputPeerUser{UserID: 1}}}})
+	m := mm.(model)
+	path := filepath.Join(t.TempDir(), "clip.mp4")
+	if err := os.WriteFile(path, make([]byte, 4096), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m.attach = []string{path}
+	if m.sendAttached(m.chats[0], "") == nil || len(m.xfers) != 1 || !strings.Contains(m.View(), "0% · 0 B / 4.0 KB") || !strings.Contains(m.note, "Đang gửi clip.mp4") {
+		t.Fatalf("no progress shown: note=%q", m.note)
+	}
+	up := m.xfers[0]
+	up.Chunk(context.Background(), uploader.ProgressState{ID: 9, Uploaded: 2048})
+	m.onXferTick(up)
+	if !strings.Contains(m.View(), "50%") {
+		t.Fatalf("progress not refreshed: %q", m.note)
+	}
+	m.onAct(actMsg{kind: "file", text: "clip.mp4", key: "u1", err: errors.New("FILE_PARTS_INVALID"), up: up})
+	if len(m.xfers) != 0 || m.note != "" || !strings.Contains(m.err, "gửi tệp lỗi") {
+		t.Fatalf("end of send: xfers=%v note=%q err=%q", m.xfers, m.note, m.err)
+	}
+
+	m.err, m.cfg.premium = "", false
+	big := filepath.Join(t.TempDir(), "big.mov")
+	f, _ := os.Create(big)
+	f.Truncate(2001 << 20) // sparse: no disk used
+	f.Close()
+	m.attach = []string{big}
+	if m.sendAttached(m.chats[0], "") != nil || len(m.xfers) != 0 || !strings.Contains(m.err, "Telegram chỉ nhận") || len(m.attach) != 1 {
+		t.Fatalf("too big must be refused and stay staged: err=%q", m.err)
 	}
 }

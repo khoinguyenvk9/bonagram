@@ -14,12 +14,34 @@ Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connectio
 
 ![bonagram screenshot](docs/screenshot.png)
 
-*Sample data (made-up names and messages), rendered from the app's own output by `scripts/shots.sh`: a reply quote, formatting, links, a code block, a file card and a location card. Real colours and fonts depend on your terminal.*
+*Sample data (made-up names and messages), rendered from the app's own output by `scripts/shots.sh`: chat folders as tabs, read marks (✓✓), "typing…" in the list and the title row, a reply quote, formatting, links, a code block, a file card and a location card. Real colours and fonts depend on your terminal.*
 
 <details>
-<summary>Screenshot: searching a chat with <code>Ctrl+F</code></summary>
+<summary>More screenshots: search, right-click menus, who reacted, folders, sending a video, the folded list</summary>
+
+**Searching a chat with `Ctrl+F`**
 
 ![Searching messages with Ctrl+F](docs/screenshot-search.png)
+
+**Right-click a message:** quick reactions on top, then the actions
+
+![The right-click menu of a message](docs/screenshot-menu.png)
+
+**Who reacted** (*Ai đã thả react*), with a row per emoji to filter
+
+![Who reacted to a message](docs/screenshot-reactions.png)
+
+**Right-click a chat › Thư mục:** add it to a folder or take it out (✓ = in it)
+
+![Adding a chat to a folder](docs/screenshot-folders.png)
+
+**Sending a video:** the progress in the title row, `⌃X` to stop it
+
+![A video being sent](docs/screenshot-upload.png)
+
+**The list folded into initials**, a private chat with the online status (*đang hoạt động*) and ✓✓
+
+![The folded chat list and a private chat](docs/screenshot-rail.png)
 
 </details>
 
@@ -28,7 +50,7 @@ Written in Go with [gotd/td](https://github.com/gotd/td) (the Telegram connectio
 - [Highlights](#-highlights)
 - [Quick start](#-quick-start)
 - [Requirements](#-requirements)
-- [Install](#-install)
+- [Install](#-install) (with [Linux](#linux) step by step)
 - [First sign-in](#-first-sign-in)
 - [Using bonagram](#-using-bonagram): the chat list, reading, writing and sending, working with a message, images, video and files
 - [Keys and mouse](#-keys-and-mouse)
@@ -72,7 +94,7 @@ Tick each item; for anything missing, follow the right-hand column.
 | ☐ | **Mouse support in the terminal** | Clicking a chat works after start | Turn on mouse reporting in the terminal |
 | ☐ | **A UTF-8 locale** (Vietnamese text, emoji) | `echo $LANG` contains `UTF-8` | `export LANG=en_US.UTF-8` |
 | ☐ | **A window of 80×24 or more** | `tput cols; tput lines` | Smaller still works; under 76 columns the chat list folds into initials |
-| ☐ | (Linux) clipboard and file-opening tools | `command -v xclip wl-copy xdg-open` | Install `xclip` (X11) or `wl-clipboard` (Wayland), and `xdg-open` |
+| ☐ | (Linux) clipboard and file-opening tools | `command -v xclip wl-copy xdg-open` | See [Linux](#linux): one `apt`/`dnf`/`pacman` line |
 | ☐ | (Optional) [mpv](https://mpv.io), a Nerd Font | `command -v mpv` | mpv plays video in the terminal; a Nerd Font gives the menu icons (built into Ghostty, Kitty, WezTerm) |
 
 **Platforms:** used daily on macOS (Apple Silicon). Linux (amd64, arm64) and Windows are built and tested on GitHub Actions but nobody has used them with a real account yet. Windows cannot open files in other apps yet.
@@ -105,6 +127,53 @@ To run it from anywhere, copy `bonagram` into a folder on your `PATH`, for examp
 
 An unknown option prints an error and exits with code 2.
 
+### Linux
+
+The Linux executables are static: they run on any distribution (Ubuntu, Debian, Fedora, Arch, Alpine…) with no library to install. Download the latest release for your processor, check it and put it in `~/.local/bin`:
+
+```bash
+ver=$(curl -fsSL https://api.github.com/repos/khoinguyenvk9/bonagram/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; esac
+name="bonagram_${ver}_linux_${arch}"
+cd "$(mktemp -d)"
+curl -fLO "https://github.com/khoinguyenvk9/bonagram/releases/download/v${ver}/${name}.tar.gz"
+curl -fLO "https://github.com/khoinguyenvk9/bonagram/releases/download/v${ver}/checksums.txt"
+grep " ${name}.tar.gz$" checksums.txt | sha256sum -c -
+tar xzf "${name}.tar.gz"
+mkdir -p ~/.local/bin && install -m 755 "${name}/bonagram" ~/.local/bin/bonagram
+~/.local/bin/bonagram --version
+```
+
+If `bonagram` is then "command not found", `~/.local/bin` is not on your `PATH`: add `export PATH="$HOME/.local/bin:$PATH"` to `~/.bashrc` (or `~/.zshrc`) and open a new terminal. To update, run the same lines again.
+
+The app itself needs nothing else; these tools turn on the parts that talk to the desktop (all optional):
+
+| What for | Debian / Ubuntu | Fedora | Arch |
+|---|---|---|---|
+| Copy (X11 / Wayland) | `xclip` / `wl-clipboard` | `xclip` / `wl-clipboard` | `xclip` / `wl-clipboard` |
+| Open links and files | `xdg-utils` | `xdg-utils` | `xdg-utils` |
+| File dialog (`Ctrl+O`, paperclip) | `zenity` (KDE: `kdialog`) | `zenity` | `zenity` |
+| Play video in the terminal | `mpv` | `mpv` | `mpv` |
+| Cover picture of a video you send | `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
+
+```bash
+sudo apt install xclip wl-clipboard xdg-utils zenity mpv ffmpeg          # Debian, Ubuntu, Mint
+sudo dnf install xclip wl-clipboard xdg-utils zenity mpv ffmpeg-free     # Fedora
+sudo pacman -S xclip wl-clipboard xdg-utils zenity mpv ffmpeg            # Arch, Manjaro
+```
+
+**Terminal:** GNOME Terminal, Konsole, Alacritty, WezTerm, Kitty and Ghostty all have 24-bit colour and the mouse. Kitty and Ghostty draw real pictures everywhere; WezTerm, Konsole and foot when you open one (colour blocks in the chat); GNOME Terminal, Alacritty and tmux use colour blocks (details in [Terminals](#-terminals-tmux-and-clipboard)). Copying also works without `xclip`/`wl-clipboard` in terminals that accept OSC 52 (Kitty, Ghostty, WezTerm…).
+
+**Building from source on Linux:** the Go of the distribution is fine even when older than 1.26 (Ubuntu 24.04 has 1.22): it downloads the Go version the project needs by itself on the first build.
+
+```bash
+sudo apt install golang-go git        # or: dnf install golang git / pacman -S go git
+git clone https://github.com/khoinguyenvk9/bonagram && cd bonagram
+go build -ldflags="-s -w" -o bonagram . && install -m 755 bonagram ~/.local/bin/
+```
+
+Your sign-in and settings are in `~/.config/bonagram/` (`session.json` gives full access to the account: keep it private); downloaded pictures are cached in `~/.cache/bonagram/`. Uninstall: `rm ~/.local/bin/bonagram`, and `rm -r ~/.config/bonagram ~/.cache/bonagram` to also sign this device out locally (it stays listed in Telegram › Settings › Devices until you end it there).
+
 ## 🔑 First sign-in
 
 **Getting an `api_id` and `api_hash`:**
@@ -133,10 +202,14 @@ Settings and the session live in `~/.config/bonagram/`:
 ### The chat list
 
 - **Open a chat:** click it, or `Ctrl+N` / `Ctrl+P` for the next / previous one, `Ctrl+G` for the next chat with unread messages.
+- **Folders:** your Telegram chat folders are tabs right above the list, with the number of unread chats; click one or press `Ctrl+L` for the next. When they do not all fit, `‹` / `›` mark the hidden ones: click an arrow or turn the wheel over the tabs to scroll them. A search looks through every chat whatever the folder. Folders changed on another device follow at once.
+- **In each row:** `✓` / `✓✓` beside the time when the newest message is yours (sent / read); *đang soạn tin…* (typing) in place of the last message while someone types, or what they do (recording audio, sending a photo…).
+- **Above the messages:** a person's online status next to their name (*đang hoạt động* = online now, *hoạt động 5 phút trước*…), or who is typing; in a forum group only the open topic's typing. While you type, the other side sees you typing (not in Saved Messages or channels).
 - **Search chats:** `Ctrl+K` or click the search field. No need to type accents (`dat` finds `Đạt`); usernames match too. From 3 letters on, people, groups and channels **on Telegram** (by name or `@username`) are listed under the matches, marked *tìm trên Telegram* (found on Telegram): pick one to open it as a new chat and message someone who is not in your list yet.
 - **Right-click a chat:**
   - **Ghim lên đầu** (pin to top) / *Bỏ ghim chat* (unpin); a regular account can pin 5 chats.
   - **Tắt thông báo** (mute) / *Bật thông báo* (unmute); muting lasts until turned back on.
+  - **Thư mục ›** (folders): your folders, `✓` on the ones holding the chat; pick one to add the chat or take it out. A chat a folder takes by its kind (all groups, say) is excluded when taken out. Shared folders are edited in the Telegram app. Creating, renaming or deleting folders is not done here.
   - **Xoá chat** (delete, private chats): *Chỉ xoá phía tôi* (my side only) or *Xoá cho cả hai bên* (for both people); cannot be undone.
   - **Rời nhóm** (leave, groups and channels). Saved Messages cannot be deleted from here.
 - **Forum groups:** each topic is a tab with its own unread count; `Ctrl+T` / `Ctrl+Y` change topic.
@@ -178,7 +251,7 @@ Settings and the session live in `~/.config/bonagram/`:
   1. Pick them: click the **paperclip** (or the word `Tệp`) at the end of the message box, or press `Ctrl+O`, for the system file dialog; or type `/file ~/Downloads/report.pdf ~/Pictures/a.png`; or drag files from Finder into the terminal (it pastes the paths) and use `/file`.
   2. The files are listed above the box. Type a caption if you like, `⏎` sends, `Esc` drops them.
 
-  A jpg/png under 10 MB goes as a photo, anything else as a file. Several files go as albums of up to 10, the caption on the first. While replying, they are sent as the reply. On Linux the dialog needs `zenity` or `kdialog`.
+  A jpg/png under 10 MB goes as a photo; an mp4/mov/m4v goes as a video that plays inside Telegram (duration and frame size read from the file, a cover picture when `ffmpeg` is installed); anything else as a file. Photos and videos share albums. Several files go as albums of up to 10, the caption on the first. While replying, they are sent as the reply. While a send runs, the title bar shows how far it got (percent and MB); a file over Telegram's limit (2000 MB, 4000 MB with Premium) is refused before anything is uploaded. `Ctrl+X` stops a send in progress (files of an earlier album of the same send stay sent). On Linux the dialog needs `zenity` or `kdialog`.
 - **Send a location:** `/position 10.7769, 106.7009` (or `/vitri`), or paste a Google Maps link with coordinates.
 - **Drafts:** unsent text is kept per chat and topic when you switch away; quitting the app drops it.
 
@@ -188,6 +261,7 @@ Settings and the session live in `~/.config/bonagram/`:
 
 - The top row holds **7 quick reactions**: click one (or press `1`…`7`) to react at once; one you gave has its own background, click it again to take it back.
 - Below come the actions, each with an icon and its key: **Trả lời** (reply), **Xem ảnh / Tải tệp** (view photo / download file), **Chép** (copy), **Mở link / Chép link** (open / copy link), **Ghim** (pin), **Chuyển tiếp** (forward), **Sửa** (edit), **Xoá** (delete). Edit and delete only on your own messages.
+- **Ai đã thả react ›** (who reacted), on a message with reactions: each person with their emoji, rows on top to show one emoji only; click a person to open the chat with them. Nobody is told that you looked. In groups Telegram shows the list only for small groups (the entry is left out otherwise) and never in channels; at most 100 people are fetched, the title says when there are more.
 - **Ghim** (pin) opens a sub-menu: in a group, *Ghim và báo cho mọi người* (pin and notify) or *Ghim im lặng* (pin silently; needs admin rights); in a private chat, *Ghim cho cả hai bên* (for both) or *Chỉ ghim cho tôi* (only for me). A pinned message offers *Bỏ ghim* (unpin) instead.
 - **Xoá** (delete) asks *Xoá với mọi người* (delete for everyone). Cannot be undone.
 - **Forward:** after picking it, click the target chat in the list (or search and `⏎`).
@@ -219,11 +293,11 @@ Settings and the session live in `~/.config/bonagram/`:
 | foot, Windows Terminal 1.22+, Konsole, mlterm, contour | colour blocks | real image (Sixel) |
 | Terminal.app, Alacritty, GNOME Terminal, tmux, others | colour blocks | colour blocks |
 
-Only Kitty and Ghostty were tried for real; the other rows follow each terminal's documentation. If the guess is wrong, set `BONAGRAM_IMAGES`. Thumbnails inside the chat are turned on with `BONAGRAM_PREVIEWS=1`. Still stickers are drawn as pictures; animated ones are a label.
+Only Kitty and Ghostty were tried for real; the other rows follow each terminal's documentation. If the guess is wrong, set `BONAGRAM_IMAGES`. Thumbnails inside the chat are turned on with `BONAGRAM_PREVIEWS=1`; a picture sent as a file (without compression) gets one too, from the small copy Telegram keeps of it (the original is downloaded only on Enter). Still stickers are drawn as pictures; animated ones are a label.
 
 **Video and GIFs:** `⏎` downloads and, with [mpv](https://mpv.io) installed, plays it right in the terminal (`q` returns to the app); without mpv the system player opens it. Install: `brew install mpv`, `apt install mpv` or `winget install mpv`.
 
-**Files** show as one line, `PDF  name  2.3 MB  ⏎ tải` (download). `⏎` saves into **Downloads** (the same name and size is reused, a different file becomes `name (1).ext`). Familiar kinds (images, video, audio, PDF, text, Office) open in the system app; others are only shown in the file manager and **never run**, because opening any file from a chat could run code. Expired file references are refreshed by themselves.
+**Files** show as one line, `PDF  name  2.3 MB  ⏎ tải` (download). `⏎` saves into **Downloads**, with the percent and MB in the title bar while it downloads (`Ctrl+X` stops it and removes the half file) (the same name and size is reused, a different file becomes `name (1).ext`). Familiar kinds (images, video, audio, PDF, text, Office) open in the system app; others are only shown in the file manager and **never run**, because opening any file from a chat could run code. Expired file references are refreshed by themselves.
 
 **Locations** show as one line with a *Mở bản đồ ↗* (open map) link to Google Maps.
 
@@ -241,6 +315,7 @@ Only Kitty and Ghostty were tried for real; the other rows follow each terminal'
 | `Ctrl+N` / `Ctrl+P` | Next / previous chat |
 | `Ctrl+G` | Chat with unread messages |
 | `Ctrl+T` / `Ctrl+Y` | Next / previous topic |
+| `Ctrl+L` | Next chat folder |
 | `Ctrl+F` | Search the open chat |
 | `Ctrl+B` | Select messages (see [Working with a message](#working-with-a-message)) |
 | `PgUp` / `PgDn` | Scroll the messages |
@@ -255,6 +330,7 @@ Only Kitty and Ghostty were tried for real; the other rows follow each terminal'
 | `Alt+Enter` / `Ctrl+J` | New line |
 | `Ctrl+R` | Reply to the newest message |
 | `Ctrl+O` | Pick files to send |
+| `Ctrl+X` | Stop the file send or download in progress |
 | `↑` `↓`, `Home` `End`, `Alt+←` `Alt+→` | Move in the message box |
 | `Ctrl+Z` / `Ctrl+W` / `Ctrl+U` | Undo / delete a word / delete to the line start |
 | `:name` / `@name` | Emoji / mention suggestions |
@@ -350,7 +426,7 @@ set -g mouse on
 
 ## 🚧 Limitations
 
-**Not supported yet:** sending voice messages, stickers, GIFs; playing voice messages in the app; secret chats, calls, stories; viewing archived chats; "typing…" and online status; proxies; several accounts at once (to switch, delete `session.json`).
+**Not supported yet:** sending voice messages, stickers, GIFs; playing voice messages in the app; secret chats, calls, stories; viewing archived chats; proxies; several accounts at once (to switch, delete `session.json`).
 
 **Changes made on other devices** arrive live for new messages, edits, reactions and read state. These only show after reopening the chat or the app: pinning or unpinning messages or chats, muting, archived chats getting new messages. Messages deleted by others are **deliberately** kept on screen until the app restarts, so you can still read what was sent and then deleted.
 

@@ -167,3 +167,63 @@ func TestFileIsDrawnAsACard(t *testing.T) {
 		t.Fatalf("the view should show the card:\n%s", v)
 	}
 }
+
+func TestImageDocOf(t *testing.T) {
+	thumbs := []tg.PhotoSizeClass{&tg.PhotoStrippedSize{Type: "i"}, &tg.PhotoSize{Type: "s", W: 90, H: 60}, &tg.PhotoSize{Type: "m", W: 320, H: 213}}
+	doc := func(mime string, thumbs []tg.PhotoSizeClass, attrs ...tg.DocumentAttributeClass) *tg.Message {
+		return &tg.Message{Media: &tg.MessageMediaDocument{Document: &tg.Document{ID: 1, MimeType: mime, Thumbs: thumbs, Attributes: attrs}}}
+	}
+	if d, typ, ok := imageDocOf(doc("image/jpeg", thumbs, &tg.DocumentAttributeFilename{FileName: "a.jpg"})); !ok || d == nil || typ != "m" {
+		t.Fatalf("picture sent as a file: got %v %q", ok, typ)
+	}
+	if _, typ, ok := imageDocOf(doc("image/png", thumbs[:2])); !ok || typ != "s" {
+		t.Fatalf("no m thumbnail: want the largest, got %v %q", ok, typ)
+	}
+	for name, m := range map[string]*tg.Message{
+		"no thumbnail":  doc("image/jpeg", nil),
+		"only stripped": doc("image/jpeg", thumbs[:1]),
+		"pdf":           doc("application/pdf", thumbs),
+		"sticker":       doc("image/webp", thumbs, &tg.DocumentAttributeSticker{Alt: "x"}),
+		"gif":           doc("image/gif", thumbs, &tg.DocumentAttributeAnimated{}),
+		"photo":         {Media: &tg.MessageMediaPhoto{Photo: &tg.Photo{}}},
+		"no media":      {},
+		"nil":           nil,
+		"empty doc":     {Media: &tg.MessageMediaDocument{Document: &tg.DocumentEmpty{}}},
+	} {
+		if _, _, ok := imageDocOf(m); ok {
+			t.Errorf("%s: must not be a picture file", name)
+		}
+	}
+}
+
+// A download shows its progress and Ctrl+X stops it: a notice, not an error, and no half file left behind.
+func TestDownloadProgressAndCancel(t *testing.T) {
+	home := homeIn(t)
+	a := fileModel(t, docMsg(7, "big.zip", "application/zip", 5))
+	cmd := a.send(tea.KeyMsg{Type: tea.KeyEnter})
+	m := a.m()
+	if len(m.xfers) != 1 || !m.xfers[0].down {
+		t.Fatalf("no download shown: %v", m.xfers)
+	}
+	v := ansi.Strip(m.View())
+	if !strings.Contains(v, "Đang tải big.zip") || !strings.Contains(v, "huỷ tải") {
+		t.Fatalf("progress or Ctrl+X hint missing:\n%s", v)
+	}
+	p := m.xfers[0]
+	p.got(2, 5)
+	if got := p.text(); !strings.Contains(got, "40%") {
+		t.Fatalf("progress: %q", got)
+	}
+	a.send(tea.KeyMsg{Type: tea.KeyCtrlX})
+	if !p.stopped || !strings.Contains(a.m().note, "Đang huỷ tải") {
+		t.Fatalf("Ctrl+X: %q", a.m().note)
+	}
+	a.run(cmd) // the download now runs in a cancelled context
+	m = a.m()
+	if m.err != "" || len(m.xfers) != 0 || !strings.Contains(m.toast, "Đã huỷ tải big.zip") {
+		t.Fatalf("after cancel: err=%q toast=%q xfers=%d", m.err, m.toast, len(m.xfers))
+	}
+	if left, _ := filepath.Glob(filepath.Join(home, "Downloads", "big.zip*")); len(left) != 0 {
+		t.Fatalf("a cancelled download leaves nothing: %v", left)
+	}
+}

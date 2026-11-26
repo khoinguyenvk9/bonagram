@@ -12,12 +12,34 @@ Viết bằng Go với [gotd/td](https://github.com/gotd/td) (kết nối Telegr
 
 ![Giao diện bonagram](docs/screenshot.png)
 
-*Dữ liệu mẫu (tên và tin nhắn giả), dựng từ chính giao diện của app bằng `scripts/shots.sh`: trích dẫn khi trả lời, chữ định dạng, link, khối code, thẻ tệp và thẻ vị trí. Màu và font thật phụ thuộc terminal của bạn.*
+*Dữ liệu mẫu (tên và tin nhắn giả), dựng từ chính giao diện của app bằng `scripts/shots.sh`: thư mục chat dạng tab, dấu đã xem (✓✓), "đang soạn tin…" trong danh sách và trên tiêu đề, trích dẫn khi trả lời, chữ định dạng, link, khối code, thẻ tệp và thẻ vị trí. Màu và font thật phụ thuộc terminal của bạn.*
 
 <details>
-<summary>Ảnh: tìm trong nội dung chat bằng <code>Ctrl+F</code></summary>
+<summary>Thêm ảnh: tìm tin, menu chuột phải, ai đã thả react, thư mục, gửi video, danh sách thu gọn</summary>
+
+**Tìm trong nội dung chat bằng `Ctrl+F`**
 
 ![Tìm tin nhắn bằng Ctrl+F](docs/screenshot-search.png)
+
+**Chuột phải vào tin:** hàng reaction nhanh ở trên, các thao tác ở dưới
+
+![Menu chuột phải của tin nhắn](docs/screenshot-menu.png)
+
+**Ai đã thả react**, có dòng lọc theo từng emoji
+
+![Xem ai đã thả react](docs/screenshot-reactions.png)
+
+**Chuột phải vào chat › Thư mục:** thêm vào hoặc bỏ khỏi thư mục (✓ = đang ở trong)
+
+![Thêm chat vào thư mục](docs/screenshot-folders.png)
+
+**Gửi video:** tiến trình trên tiêu đề, `⌃X` để huỷ
+
+![Đang gửi video](docs/screenshot-upload.png)
+
+**Danh sách thu gọn thành chữ viết tắt**, chat riêng có trạng thái online (*đang hoạt động*) và ✓✓
+
+![Danh sách thu gọn và chat riêng](docs/screenshot-rail.png)
 
 </details>
 
@@ -26,7 +48,7 @@ Viết bằng Go với [gotd/td](https://github.com/gotd/td) (kết nối Telegr
 - [Điểm nổi bật](#-điểm-nổi-bật)
 - [Bắt đầu nhanh](#-bắt-đầu-nhanh)
 - [Yêu cầu](#-yêu-cầu)
-- [Cài đặt](#-cài-đặt)
+- [Cài đặt](#-cài-đặt) (có hướng dẫn [Linux](#linux) từng bước)
 - [Đăng nhập lần đầu](#-đăng-nhập-lần-đầu)
 - [Hướng dẫn sử dụng](#-hướng-dẫn-sử-dụng): danh sách chat, đọc tin, soạn và gửi, thao tác trên tin, ảnh, video và tệp
 - [Phím tắt và chuột](#-phím-tắt-và-chuột)
@@ -70,7 +92,7 @@ Trong app, bấm `F1` bất cứ lúc nào để xem hướng dẫn phím tắt.
 | ☐ | **Terminal hỗ trợ chuột** | Click được vào chat sau khi mở app | Bật báo cáo chuột (mouse reporting) trong terminal |
 | ☐ | **Locale UTF-8** (tiếng Việt, emoji) | `echo $LANG` có `UTF-8` | `export LANG=en_US.UTF-8` (hoặc `vi_VN.UTF-8`) |
 | ☐ | **Cửa sổ từ 80×24 trở lên** | `tput cols; tput lines` | Nhỏ hơn vẫn chạy; dưới 76 cột danh sách chat thu thành cột chữ viết tắt |
-| ☐ | (Linux) công cụ clipboard và mở tệp | `command -v xclip wl-copy xdg-open` | Cài `xclip` (X11) hoặc `wl-clipboard` (Wayland), và `xdg-open` |
+| ☐ | (Linux) công cụ clipboard và mở tệp | `command -v xclip wl-copy xdg-open` | Xem mục [Linux](#linux): một dòng `apt`/`dnf`/`pacman` |
 | ☐ | (Không bắt buộc) [mpv](https://mpv.io), một Nerd Font | `command -v mpv` | mpv để xem video trong terminal; Nerd Font cho biểu tượng trong menu (Ghostty, Kitty, WezTerm có sẵn) |
 
 **Nền tảng:** macOS đã dùng thực tế (Apple Silicon). Linux (amd64, arm64) và Windows được build và chạy test trên GitHub Actions, nhưng chưa ai dùng với tài khoản thật ở đó. Windows chưa mở được tệp bằng ứng dụng ngoài.
@@ -103,6 +125,53 @@ Muốn gọi từ mọi thư mục thì chép `bonagram` vào một thư mục t
 
 Tuỳ chọn không hợp lệ thì app báo lỗi và thoát với mã 2.
 
+### Linux
+
+File chạy cho Linux là file tĩnh: chạy được trên mọi bản Linux (Ubuntu, Debian, Fedora, Arch, Alpine…) mà không cần cài thư viện nào. Tải bản mới nhất đúng loại CPU, kiểm tra rồi đặt vào `~/.local/bin`:
+
+```bash
+ver=$(curl -fsSL https://api.github.com/repos/khoinguyenvk9/bonagram/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+case "$(uname -m)" in x86_64) arch=amd64 ;; aarch64 | arm64) arch=arm64 ;; esac
+name="bonagram_${ver}_linux_${arch}"
+cd "$(mktemp -d)"
+curl -fLO "https://github.com/khoinguyenvk9/bonagram/releases/download/v${ver}/${name}.tar.gz"
+curl -fLO "https://github.com/khoinguyenvk9/bonagram/releases/download/v${ver}/checksums.txt"
+grep " ${name}.tar.gz$" checksums.txt | sha256sum -c -
+tar xzf "${name}.tar.gz"
+mkdir -p ~/.local/bin && install -m 755 "${name}/bonagram" ~/.local/bin/bonagram
+~/.local/bin/bonagram --version
+```
+
+Nếu sau đó gõ `bonagram` báo "command not found" thì `~/.local/bin` chưa có trong `PATH`: thêm `export PATH="$HOME/.local/bin:$PATH"` vào `~/.bashrc` (hoặc `~/.zshrc`) rồi mở terminal mới. Muốn cập nhật thì chạy lại đúng các dòng trên.
+
+Bản thân app không cần gì thêm; các công cụ sau bật những phần làm việc với máy tính (đều không bắt buộc):
+
+| Để làm gì | Debian / Ubuntu | Fedora | Arch |
+|---|---|---|---|
+| Chép (X11 / Wayland) | `xclip` / `wl-clipboard` | `xclip` / `wl-clipboard` | `xclip` / `wl-clipboard` |
+| Mở link và tệp | `xdg-utils` | `xdg-utils` | `xdg-utils` |
+| Hộp chọn tệp (`Ctrl+O`, nút kẹp giấy) | `zenity` (KDE: `kdialog`) | `zenity` | `zenity` |
+| Phát video trong terminal | `mpv` | `mpv` | `mpv` |
+| Ảnh bìa khi gửi video | `ffmpeg` | `ffmpeg-free` | `ffmpeg` |
+
+```bash
+sudo apt install xclip wl-clipboard xdg-utils zenity mpv ffmpeg          # Debian, Ubuntu, Mint
+sudo dnf install xclip wl-clipboard xdg-utils zenity mpv ffmpeg-free     # Fedora
+sudo pacman -S xclip wl-clipboard xdg-utils zenity mpv ffmpeg            # Arch, Manjaro
+```
+
+**Terminal:** GNOME Terminal, Konsole, Alacritty, WezTerm, Kitty và Ghostty đều có màu 24-bit và chuột. Kitty và Ghostty vẽ ảnh thật ở mọi chỗ; WezTerm, Konsole và foot vẽ ảnh thật khi mở xem (trong khung chat là khối màu); GNOME Terminal, Alacritty và tmux dùng khối màu (chi tiết ở mục [Terminal](#-terminal-tmux-và-clipboard)). Chép vẫn chạy khi không có `xclip`/`wl-clipboard` nếu terminal nhận OSC 52 (Kitty, Ghostty, WezTerm…).
+
+**Build từ mã nguồn trên Linux:** Go của bản Linux dùng được kể cả khi cũ hơn 1.26 (Ubuntu 24.04 có 1.22): lần build đầu nó tự tải đúng bản Go dự án cần.
+
+```bash
+sudo apt install golang-go git        # hoặc: dnf install golang git / pacman -S go git
+git clone https://github.com/khoinguyenvk9/bonagram && cd bonagram
+go build -ldflags="-s -w" -o bonagram . && install -m 755 bonagram ~/.local/bin/
+```
+
+Thông tin đăng nhập và cài đặt nằm ở `~/.config/bonagram/` (`session.json` cho toàn quyền vào tài khoản: giữ kín); ảnh đã tải được lưu tạm ở `~/.cache/bonagram/`. Gỡ cài đặt: `rm ~/.local/bin/bonagram`, thêm `rm -r ~/.config/bonagram ~/.cache/bonagram` để đăng xuất máy này ở phía app (máy vẫn hiện trong Telegram › Cài đặt › Thiết bị cho tới khi bạn kết thúc phiên ở đó).
+
 ## 🔑 Đăng nhập lần đầu
 
 **Lấy `api_id` và `api_hash`:**
@@ -131,10 +200,14 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 ### Danh sách chat
 
 - **Mở chat:** click, hoặc `Ctrl+N` / `Ctrl+P` để sang chat kế tiếp / trước, `Ctrl+G` để nhảy tới chat có tin chưa đọc.
+- **Thư mục:** các thư mục chat của Telegram là các tab ngay trên danh sách, kèm số chat chưa đọc; click hoặc `Ctrl+L` để sang thư mục kế tiếp. Không đủ chỗ thì `‹` / `›` báo còn thư mục bị khuất: click mũi tên hoặc lăn chuột trên hàng tab để cuộn. Tìm chat thì tìm trong mọi chat, không theo thư mục. Thư mục sửa trên thiết bị khác thì cập nhật ngay.
+- **Trên mỗi dòng:** `✓` / `✓✓` cạnh giờ khi tin mới nhất là của bạn (đã gửi / đã xem); *đang soạn tin…* thay cho tin cuối khi người kia đang gõ, hoặc việc họ đang làm (đang ghi âm, đang gửi ảnh…).
+- **Trên khung tin:** trạng thái online cạnh tên người (*đang hoạt động*, *hoạt động 5 phút trước*…), hoặc ai đang gõ; nhóm có topic thì chỉ hiện người gõ trong topic đang mở. Khi bạn gõ, bên kia thấy bạn đang soạn tin (trừ Saved Messages và kênh).
 - **Tìm chat:** `Ctrl+K` hoặc click ô tìm. Không cần gõ dấu (`dat` ra `Đạt`), tìm cả theo username. Gõ từ 3 chữ trở lên thì người, nhóm, kênh **trên Telegram** (theo tên hoặc `@username`) hiện dưới các kết quả, ghi "tìm trên Telegram": chọn là mở thành chat mới, để nhắn cho người chưa có trong danh sách.
 - **Chuột phải vào một chat:**
   - **Ghim lên đầu** / Bỏ ghim chat (tài khoản thường ghim tối đa 5 chat).
   - **Tắt thông báo** / Bật thông báo (tắt hẳn cho tới khi bật lại).
+  - **Thư mục ›**: danh sách thư mục, `✓` ở thư mục đang chứa chat; chọn để thêm chat vào hoặc bỏ ra. Chat mà thư mục lấy theo loại (ví dụ mọi nhóm) thì bỏ ra nghĩa là loại trừ riêng chat đó. Thư mục chia sẻ thì sửa trong app Telegram. Chưa tạo, đổi tên hay xoá thư mục được ở đây.
   - **Xoá chat** (chat riêng): *Chỉ xoá phía tôi* hoặc *Xoá cho cả hai bên*, không hoàn tác được.
   - **Rời nhóm** (nhóm và kênh). Saved Messages không xoá được từ đây.
 - **Nhóm có topic (forum):** mỗi topic là một tab, có số chưa đọc riêng; `Ctrl+T` / `Ctrl+Y` để đổi topic.
@@ -176,7 +249,7 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
   1. Chọn tệp: bấm nút **kẹp giấy** (hoặc chữ `Tệp`) ở cuối ô soạn hoặc `Ctrl+O` để mở hộp chọn tệp; hoặc gõ `/file ~/Downloads/bao-cao.pdf ~/Pictures/a.png`; hoặc kéo tệp từ Finder thả vào terminal (terminal dán đường dẫn) rồi dùng `/file`.
   2. Các tệp hiện ở dòng trên ô soạn. Gõ chú thích nếu muốn, `⏎` để gửi, `Esc` để bỏ.
 
-  Ảnh jpg/png dưới 10 MB gửi dạng ảnh, còn lại dạng tệp. Nhiều tệp được gộp thành album tối đa 10, chú thích ở tệp đầu. Đang trả lời một tin thì tệp gửi kèm làm trả lời. Trên Linux hộp chọn tệp cần `zenity` hoặc `kdialog`.
+  Ảnh jpg/png dưới 10 MB gửi dạng ảnh; mp4/mov/m4v gửi dạng video xem được ngay trong Telegram (thời lượng và khung hình đọc từ tệp, có ảnh bìa nếu máy cài `ffmpeg`); còn lại dạng tệp. Ảnh và video gộp chung album. Nhiều tệp được gộp thành album tối đa 10, chú thích ở tệp đầu. Đang trả lời một tin thì tệp gửi kèm làm trả lời. Trong lúc gửi, thanh tiêu đề hiện đã gửi được bao nhiêu (phần trăm và MB); tệp vượt giới hạn của Telegram (2000 MB, 4000 MB với Premium) bị từ chối ngay, trước khi tải lên. `Ctrl+X` huỷ lần gửi đang chạy (album trước đó của cùng lần gửi đã đi thì vẫn ở lại). Trên Linux hộp chọn tệp cần `zenity` hoặc `kdialog`.
 - **Gửi vị trí:** `/position 10.7769, 106.7009` (hoặc `/vitri`), hoặc dán link Google Maps có toạ độ.
 - **Nháp:** chữ gõ dở được giữ riêng cho từng chat và topic khi bạn chuyển đi; thoát app thì mất.
 
@@ -186,6 +259,7 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 
 - Hàng trên cùng là **7 reaction**: click một emoji (hoặc phím `1`…`7`) là thả ngay; emoji đã thả có nền khác, click lại để gỡ.
 - Bên dưới là các thao tác, mỗi mục có biểu tượng và phím tắt tương ứng: **Trả lời, Xem ảnh / Tải tệp, Chép, Mở link, Chép link, Ghim, Chuyển tiếp, Sửa, Xoá** (Sửa và Xoá chỉ với tin của bạn).
+- **Ai đã thả react ›** (tin có react): từng người kèm emoji họ thả, các dòng trên cùng để lọc theo một emoji; click vào tên để mở chat với người đó. Không ai được báo là bạn đã xem. Trong nhóm, Telegram chỉ cho xem với nhóm nhỏ (nhóm lớn thì không có mục này), kênh thì không bao giờ; tải tối đa 100 người, nhiều hơn thì tiêu đề ghi rõ.
 - **Ghim** mở menu con: trong nhóm chọn *Ghim và báo cho mọi người* hoặc *Ghim im lặng* (cần quyền admin); trong chat riêng chọn *Ghim cho cả hai bên* hoặc *Chỉ ghim cho tôi*. Tin đang ghim thì mục này là *Bỏ ghim*.
 - **Xoá** hỏi lại *Xoá với mọi người*. Không hoàn tác được.
 - **Chuyển tiếp:** sau khi chọn, click chat đích ở danh sách bên trái (hoặc gõ tìm rồi `⏎`).
@@ -217,11 +291,11 @@ Cấu hình và phiên đăng nhập nằm trong `~/.config/bonagram/`:
 | foot, Windows Terminal 1.22+, Konsole, mlterm, contour | khối màu | ảnh thật (Sixel) |
 | Terminal.app, Alacritty, GNOME Terminal, tmux, khác | khối màu | khối màu |
 
-Mới thử thật trên Kitty và Ghostty; các dòng khác theo tài liệu của từng terminal. Đoán sai thì đặt `BONAGRAM_IMAGES`. Ảnh nhỏ ngay trong khung chat bật bằng `BONAGRAM_PREVIEWS=1`. Sticker tĩnh được vẽ thành hình; sticker động là nhãn.
+Mới thử thật trên Kitty và Ghostty; các dòng khác theo tài liệu của từng terminal. Đoán sai thì đặt `BONAGRAM_IMAGES`. Ảnh nhỏ ngay trong khung chat bật bằng `BONAGRAM_PREVIEWS=1`; ảnh gửi dạng tệp (không nén) cũng có ảnh nhỏ, lấy từ bản thu nhỏ Telegram lưu sẵn (tệp gốc chỉ tải khi nhấn Enter). Sticker tĩnh được vẽ thành hình; sticker động là nhãn.
 
 **Video và GIF:** `⏎` tải về rồi phát ngay trong terminal nếu máy có [mpv](https://mpv.io) (`q` để quay lại app); không có mpv thì mở bằng trình phát của hệ thống. Cài: `brew install mpv`, `apt install mpv` hoặc `winget install mpv`.
 
-**Tệp** hiện thành một dòng `PDF  tên tệp  2.3 MB  ⏎ tải`. `⏎` tải vào thư mục **Downloads** (tệp trùng tên và cùng dung lượng thì dùng lại, khác thì thành `tên (1).đuôi`). Loại quen thuộc (ảnh, video, âm thanh, PDF, văn bản, Office) được mở bằng ứng dụng hệ thống; loại khác chỉ được chỉ ra trong trình quản lý tệp, **không bao giờ tự chạy**, vì mở bừa một tệp từ chat có thể chạy mã. Liên kết tệp hết hạn thì app tự lấy lại.
+**Tệp** hiện thành một dòng `PDF  tên tệp  2.3 MB  ⏎ tải`. `⏎` tải vào thư mục **Downloads**, trong lúc tải thanh tiêu đề hiện phần trăm và MB (`Ctrl+X` huỷ và xoá phần đã tải dở) (tệp trùng tên và cùng dung lượng thì dùng lại, khác thì thành `tên (1).đuôi`). Loại quen thuộc (ảnh, video, âm thanh, PDF, văn bản, Office) được mở bằng ứng dụng hệ thống; loại khác chỉ được chỉ ra trong trình quản lý tệp, **không bao giờ tự chạy**, vì mở bừa một tệp từ chat có thể chạy mã. Liên kết tệp hết hạn thì app tự lấy lại.
 
 **Vị trí** hiện thành một dòng có link *Mở bản đồ ↗* (Google Maps).
 
@@ -239,6 +313,7 @@ Mới thử thật trên Kitty và Ghostty; các dòng khác theo tài liệu c�
 | `Ctrl+N` / `Ctrl+P` | Chat kế tiếp / trước |
 | `Ctrl+G` | Chat có tin chưa đọc |
 | `Ctrl+T` / `Ctrl+Y` | Topic kế tiếp / trước |
+| `Ctrl+L` | Thư mục chat kế tiếp |
 | `Ctrl+F` | Tìm trong nội dung chat |
 | `Ctrl+B` | Chọn tin (xem [Thao tác trên tin](#thao-tác-trên-tin)) |
 | `PgUp` / `PgDn` | Cuộn khung tin |
@@ -253,6 +328,7 @@ Mới thử thật trên Kitty và Ghostty; các dòng khác theo tài liệu c�
 | `Alt+Enter` / `Ctrl+J` | Xuống dòng |
 | `Ctrl+R` | Trả lời tin mới nhất |
 | `Ctrl+O` | Chọn tệp để gửi |
+| `Ctrl+X` | Huỷ gửi / tải tệp đang chạy |
 | `↑` `↓`, `Home` `End`, `Alt+←` `Alt+→` | Di chuyển trong ô soạn |
 | `Ctrl+Z` / `Ctrl+W` / `Ctrl+U` | Hoàn tác / xoá một từ / xoá tới đầu dòng |
 | `:tên` / `@tên` | Gợi ý emoji / nhắc tên |
@@ -348,7 +424,7 @@ set -g mouse on
 
 ## 🚧 Giới hạn
 
-**Chưa hỗ trợ:** gửi tin thoại, sticker, GIF; phát tin thoại trong app; chat bí mật (secret chat), cuộc gọi, story; xem chat lưu trữ; "đang gõ…" và trạng thái online; proxy; nhiều tài khoản cùng lúc (đổi tài khoản: xoá `session.json`).
+**Chưa hỗ trợ:** gửi tin thoại, sticker, GIF; phát tin thoại trong app; chat bí mật (secret chat), cuộc gọi, story; xem chat lưu trữ; proxy; nhiều tài khoản cùng lúc (đổi tài khoản: xoá `session.json`).
 
 **Thay đổi làm trên máy khác** được cập nhật trực tiếp với tin mới, tin bị sửa, reaction và trạng thái đã đọc. Riêng các thay đổi sau chỉ hiện khi mở lại chat hoặc app: ghim/bỏ ghim tin hay chat, tắt thông báo, chat lưu trữ có tin mới. Tin bị người khác xoá **cố ý** vẫn được giữ trên màn hình tới khi mở lại app, để bạn đọc được tin đã gửi rồi xoá.
 

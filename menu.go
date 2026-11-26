@@ -28,6 +28,8 @@ const (
 	icBellOff  = ""
 	icLeave    = ""
 	icCancel   = ""
+	icFolder   = ""
+	icHeart    = ""
 )
 
 // menuItem is one row; an item without run is a separator line between groups.
@@ -46,6 +48,7 @@ type ctxMenu struct {
 	title  string // first row of a sub-menu
 	reacts *line  // the message whose quick reactions make the top row; nil: no such row
 	items  []menuItem
+	wait   int // id of the message whose reactors this menu shows or waits for (reactors.go)
 	sel    int // highlighted item; -1: the reaction row, where rsel is the emoji
 	rsel   int
 	icons  bool
@@ -71,6 +74,9 @@ func (m *model) menuFor(l line) []menuItem {
 		copyLabel = "Chép code"
 	}
 	it = append(it, menuItem{icon: icCopy, label: copyLabel, hint: "C", run: func(m *model) tea.Cmd { return m.copyFrom(l) }})
+	if ri := m.reactorsItem(c, l); ri != nil {
+		it = append(it, *ri)
+	}
 	if len(linksOf(l.msg)) > 0 {
 		it = append(it, menuItem{icon: icOpen, label: "Mở link", hint: "O", run: key("o")}, menuItem{icon: icLink, label: "Chép link", hint: "L", run: key("l")})
 	}
@@ -146,6 +152,12 @@ func (m *model) openChatMenu(c chat, x, y int) {
 		}}
 	}
 	items := []menuItem{pin, mute}
+	if fi := m.folderItems(c); len(fi) > 0 {
+		items = append(items, menuItem{icon: icFolder, label: "Thư mục", hint: "›", run: func(m *model) tea.Cmd {
+			m.subMenu("Thư mục của "+cut(c.title, 24), append(fi, menuSep, menuItem{icon: icCancel, label: "Huỷ", hint: "Esc", run: func(*model) tea.Cmd { return nil }}))
+			return nil
+		}})
+	}
 	del := func(revoke bool) func(*model) tea.Cmd {
 		return func(*model) tea.Cmd {
 			return act("delchat", revoke, func() error { return deleteChat(ctx, api, c.peer, revoke) })

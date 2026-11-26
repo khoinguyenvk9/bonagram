@@ -97,3 +97,23 @@ func BenchmarkTypeInLongDraft(b *testing.B) {
 		_ = mm.View()
 	}
 }
+
+// A frame with 1,000 chats and 8 folders: the tabs count each folder's unread chats every frame.
+func BenchmarkViewFolders(b *testing.B) {
+	mm := perfModel(b)
+	m := mm.(model)
+	cs := make([]chat, 1000)
+	for i := range cs {
+		cs[i] = chat{key: fmt.Sprint("u", i+1), title: fmt.Sprint("Người ", i), unread: i % 3, contact: i%2 == 0, peer: &tg.InputPeerUser{UserID: int64(i + 1)}}
+	}
+	m.chats = cs
+	fs := []folder{{title: "Tất cả", all: true}}
+	for i := 0; i < 7; i++ {
+		fs = append(fs, folder{title: fmt.Sprint("Thư mục ", i), contacts: i%2 == 0, groups: true, include: map[string]bool{"u5": true}, exclude: map[string]bool{"u7": true}})
+	}
+	m.folders, m.folder = fs, 2
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = m.View()
+	}
+}

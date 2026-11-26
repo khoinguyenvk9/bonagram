@@ -24,6 +24,8 @@ func typeKeys(e editor, keys ...string) editor {
 			msg = tea.KeyMsg{Type: tea.KeyCtrlU}
 		case "backspace":
 			msg = tea.KeyMsg{Type: tea.KeyBackspace}
+		case "left":
+			msg = tea.KeyMsg{Type: tea.KeyLeft}
 		case "up":
 			msg = tea.KeyMsg{Type: tea.KeyUp}
 		case "down":
@@ -70,6 +72,30 @@ func TestEditorLinesAndWrap(t *testing.T) {
 	e.SetCursor(0)
 	if r, _ := e.Cursor(); r != 0 || e.View()[0] != strings.Repeat("x", 10) {
 		t.Fatal("moving to the start scrolls back up")
+	}
+}
+
+// "á" as a + U+0301 and a family emoji are one character each for moving and deleting.
+func TestEditorGraphemes(t *testing.T) {
+	e := editor{Width: 40}
+	e.Focus()
+	e.SetValue("ca\u0301\n👨\u200d👩\u200d👧x")
+	e.CursorEnd()
+	e = typeKeys(e, "backspace", "backspace")
+	if e.Value() != "ca\u0301\n" {
+		t.Fatalf("backspace deletes the whole emoji: %q", e.Value())
+	}
+	e = typeKeys(e, "left", "left")
+	if e.Position() != 1 {
+		t.Fatalf("left crosses the newline, then a + accent at once: at %d", e.Position())
+	}
+	e = typeKeys(e, "right")
+	if e.Position() != 3 {
+		t.Fatalf("right crosses a + accent at once: at %d", e.Position())
+	}
+	e = typeKeys(e, "backspace")
+	if e.Value() != "c\n" {
+		t.Fatalf("backspace deletes a with its accent: %q", e.Value())
 	}
 }
 

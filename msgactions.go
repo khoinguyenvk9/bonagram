@@ -3,6 +3,8 @@ package main
 // The model side of actions.go: keys of the message-browsing mode (^B) and what happens with the results.
 
 import (
+	"context"
+	"errors"
 	"strconv"
 	"strings"
 
@@ -13,7 +15,7 @@ const browseKeys = "↑↓ chọn   Enter mở/trả lời   c chép   e sửa  
 
 var actionVerb = map[string]string{
 	"edit": "sửa tin", "delete": "xoá tin", "react": "thả reaction", "forward": "chuyển tiếp", "file": "gửi tệp", "geo": "gửi vị trí",
-	"pin": "ghim tin", "mute": "đổi thông báo", "delchat": "xoá chat", "pinchat": "ghim chat",
+	"pin": "ghim tin", "mute": "đổi thông báo", "delchat": "xoá chat", "pinchat": "ghim chat", "folder": "sửa thư mục",
 }
 
 // mine: a message of yours (in Saved Messages all of them are).
@@ -40,6 +42,10 @@ func rawText(l line) string {
 func (m *model) numberSent(s sentMsg) {
 	if s.id == 0 {
 		return
+	}
+	key, _, _ := strings.Cut(s.mk, "#")
+	if i := m.index(key); i >= 0 && m.chats[i].lastOut && m.chats[i].lastID == 0 {
+		m.chats[i].lastID = s.id // the list's ✓ can now turn into ✓✓
 	}
 	ls := m.msgs[s.mk]
 	dup := indexOfID(ls, s.id) >= 0
@@ -273,6 +279,13 @@ func (m *model) refresh(key string) tea.Cmd {
 }
 
 func (m *model) onAct(a actMsg) tea.Cmd {
+	if a.up != nil {
+		m.endXfer(a.up)
+	}
+	if a.up != nil && a.up.stopped && errors.Is(a.err, context.Canceled) {
+		m.err = ""
+		return tea.Batch(m.toastCmd("Đã huỷ gửi "+a.text), m.refresh(a.key))
+	}
 	if a.err != nil {
 		m.err = actionVerb[a.kind] + " lỗi: " + errText(a.err)
 		return nil
@@ -345,6 +358,8 @@ func (m *model) onAct(a actMsg) tea.Cmd {
 		return m.toastCmd("Đã bật thông báo " + a.text)
 	case "delchat":
 		return m.dropChat(a.key, a.text)
+	case "folder": // rsOK = added
+		return m.onFolderSaved(a)
 	case "pinchat": // rsOK = pinned now
 		m.repin(a.key, a.rsOK)
 		if a.rsOK {

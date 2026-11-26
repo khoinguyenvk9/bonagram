@@ -30,19 +30,27 @@ type topic struct {
 }
 
 type chat struct {
-	key      string // "u<id>" user, "g<id>" group, "c<id>" channel/supergroup
-	title    string
-	username string
-	peer     tg.InputPeerClass
-	last     string
-	date     int
-	unread   int
-	readOut  int // own messages up to this id were read by the other side (✓✓)
-	muted    bool
-	pinned   bool // pinned in the chat list: stays above the others, whatever their activity
-	forum    bool
-	topics   []topic // nil until loaded (forum only)
-	topic    int     // selected topic id, 0 = not a forum
+	key       string // "u<id>" user, "g<id>" group, "c<id>" channel/supergroup
+	title     string
+	username  string
+	peer      tg.InputPeerClass
+	last      string
+	date      int
+	unread    int
+	reacts    int      // reactions to own messages not seen yet (Telegram keeps them apart from unread messages)
+	readOut   int      // own messages up to this id were read by the other side (✓✓)
+	lastID    int      // id of the newest message, 0 when it is ours and not numbered yet
+	lastOut   bool     // the newest message is ours (and not a channel post): the list shows ✓ or ✓✓ by its time
+	seen      presence // a person's online status (private chats)
+	bot       bool     // a private chat with a bot
+	contact   bool     // a private chat with someone in the contacts
+	broadcast bool     // a channel (not a group): no "typing" is sent there
+	typing    string   // set by View only: who is typing, drawn instead of last
+	muted     bool
+	pinned    bool // pinned in the chat list: stays above the others, whatever their activity
+	forum     bool
+	topics    []topic // nil until loaded (forum only)
+	topic     int     // selected topic id, 0 = not a forum
 }
 
 type line struct {
@@ -57,6 +65,7 @@ type line struct {
 	quote     string // "name: text" of the message replied to when it is not among the loaded ones
 	topic     int
 	reacts    []reaction
+	seeWho    bool        // Telegram lets you see who reacted (can_see_list), from a live reaction update
 	segs      []seg       // code blocks / inline code of the text; nil when it has none
 	msg       *tg.Message // media lives here; nil for service messages and our own pending lines
 	event     bool        // a service message (someone joined, a title changed...): text says what happened
@@ -75,15 +84,7 @@ type reaction struct {
 func toReactions(r tg.MessageReactions) []reaction {
 	var out []reaction
 	for _, rc := range r.Results {
-		var e string
-		switch v := rc.Reaction.(type) {
-		case *tg.ReactionEmoji:
-			e = clean(v.Emoticon)
-		case *tg.ReactionCustomEmoji:
-			e = "✦"
-		case *tg.ReactionPaid:
-			e = "⭐"
-		}
+		e := reactionEmoji(rc.Reaction)
 		if e == "" || rc.Count <= 0 {
 			continue
 		}
@@ -164,6 +165,20 @@ func peerExtra(e peer.Entities, p tg.PeerClass) (username string, forum bool) {
 		}
 	}
 	return
+}
+
+// kindOf fills what folders and the title row need to know about a chat: bot, contact, online status, channel.
+func kindOf(c *chat, e peer.Entities, p tg.PeerClass) {
+	switch v := p.(type) {
+	case *tg.PeerUser:
+		if u, ok := e.User(v.UserID); ok && u != nil {
+			c.bot, c.contact, c.seen = u.Bot, u.Contact || u.Self, presenceOf(u.Status)
+		}
+	case *tg.PeerChannel:
+		if ch, ok := e.Channel(v.ChannelID); ok && ch != nil {
+			c.broadcast = ch.Broadcast
+		}
+	}
 }
 
 // humanSize writes a byte count the way file managers do: 512 B, 2.3 MB.
@@ -449,10 +464,12 @@ func loadChats(ctx context.Context, api *tg.Client) ([]chat, map[string]bool, []
 		user, forum := peerExtra(el.Entities, d.Peer)
 		c := chat{
 			key: key, title: peerTitle(el.Entities, d.Peer), username: user, peer: el.Peer, forum: forum,
-			unread: d.UnreadCount, readOut: d.ReadOutboxMaxID, muted: d.NotifySettings.MuteUntil > now, pinned: d.Pinned,
+			unread: d.UnreadCount, reacts: d.UnreadReactionsCount, readOut: d.ReadOutboxMaxID, muted: d.NotifySettings.MuteUntil > now, pinned: d.Pinned,
 		}
+		kindOf(&c, el.Entities, d.Peer)
 		if m, ok := el.Last.(*tg.Message); ok {
 			c.last, c.date = lastPreview(m, key, el.Entities), m.Date
+			c.lastID, c.lastOut = m.ID, m.Out && !m.Post
 		} else if s, ok := el.Last.(*tg.MessageService); ok {
 			c.date = s.Date
 			if l, ok := toLine(s, el.Entities); ok {
@@ -535,6 +552,13 @@ func markRead(ctx context.Context, api *tg.Client, p tg.InputPeerClass, tp, upto
 		return err
 	}
 	_, err := api.MessagesReadHistory(ctx, &tg.MessagesReadHistoryRequest{Peer: p})
+	return err
+}
+
+// readReactions marks every reaction to own messages in the chat seen (all topics of a forum too); reading
+// the messages does not, so without it other devices keep showing the reaction badge.
+func readReactions(ctx context.Context, api *tg.Client, p tg.InputPeerClass) error {
+	_, err := api.MessagesReadReactions(ctx, &tg.MessagesReadReactionsRequest{Peer: p})
 	return err
 }
 

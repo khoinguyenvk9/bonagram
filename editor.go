@@ -8,9 +8,11 @@ package main
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/rivo/uniseg"
 )
 
 const (
@@ -225,6 +227,34 @@ func (e *editor) cut(from, to int) {
 	e.pos = from
 }
 
+// nextG and prevG are the cursor positions one character right and left, where a character is what is seen
+// as one: "á" typed as a + U+0301 (pasted, or from Unikey's composed Unicode) or 👨‍👩‍👧 is several runes.
+func (e editor) nextG(p int) int {
+	if p >= len(e.val) {
+		return len(e.val)
+	}
+	// shortcut: looks 64 runes ahead, a longer cluster is crossed in steps
+	c, _, _, _ := uniseg.FirstGraphemeClusterInString(string(e.val[p:min(len(e.val), p+64)]), -1)
+	return p + max(utf8.RuneCountInString(c), 1)
+}
+
+func (e editor) prevG(p int) int {
+	s := p
+	for s > 0 && e.val[s-1] != '\n' {
+		s--
+	}
+	if s == p {
+		return max(p-1, 0) // over the newline
+	}
+	last, at := s, s
+	g := uniseg.NewGraphemes(string(e.val[s:p]))
+	for g.Next() {
+		last = at
+		at += len(g.Runes())
+	}
+	return last
+}
+
 func (e editor) wordLeft() int {
 	p := e.pos
 	for p > 0 && e.isSpace(p-1) {
@@ -288,13 +318,9 @@ func (e editor) Update(msg tea.Msg) (editor, tea.Cmd) {
 	case "alt+enter", "ctrl+j":
 		e.insert([]rune{'\n'})
 	case "backspace", "ctrl+h":
-		if e.pos > 0 {
-			e.cut(e.pos-1, e.pos)
-		}
+		e.cut(e.prevG(e.pos), e.pos)
 	case "delete", "ctrl+d":
-		if e.pos < len(e.val) {
-			e.cut(e.pos, e.pos+1)
-		}
+		e.cut(e.pos, e.nextG(e.pos))
 	case "ctrl+w", "alt+backspace":
 		e.cut(e.wordLeft(), e.pos)
 	case "alt+d", "alt+delete":
@@ -312,9 +338,9 @@ func (e editor) Update(msg tea.Msg) (editor, tea.Cmd) {
 			e.ver++
 		}
 	case "left":
-		e.pos = max(e.pos-1, 0)
+		e.pos = e.prevG(e.pos)
 	case "right":
-		e.pos = min(e.pos+1, len(e.val))
+		e.pos = e.nextG(e.pos)
 	case "alt+left", "ctrl+left", "alt+b":
 		e.pos = e.wordLeft()
 	case "alt+right", "ctrl+right", "alt+f":

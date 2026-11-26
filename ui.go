@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +29,7 @@ const (
 type config struct {
 	maxMsgs                 int
 	previews                bool
+	premium                 bool // the account has Telegram Premium: files up to 4000 MB instead of 2000
 	previewRows, previewCnt int
 	images                  string // "", "kitty" or "blocks": force how images are drawn
 	fps                     int    // renderer frame rate cap
@@ -75,9 +78,11 @@ type (
 	}
 	// reactMsg: the reactions of one message changed. renderTick: time to redraw after a burst of them.
 	reactMsg struct {
-		key string
-		id  int
-		rs  []reaction
+		key    string
+		id     int
+		rs     []reaction
+		unread bool // someone reacted to an own message and it is not seen yet
+		canSee bool // who reacted can be listed (can_see_list)
 	}
 	renderTick struct{}
 	// editMsg: a message was edited (by its author, or by a bot streaming its answer).
@@ -91,6 +96,7 @@ type (
 	doneMsg  struct {              // the end of a download: a message to show, an error that stays on screen
 		text string
 		bad  bool
+		x    *xfer // the download that ended, if it was shown
 	}
 	toastOff struct{ seq int }
 	// sentMsg: the server accepted (or refused) text typed into chat view mk, and numbered it id.
@@ -107,6 +113,8 @@ type (
 		rs             []reaction // react: the message's reactions after the change
 		rsOK           bool
 		err            error
+		up             *xfer            // file: the send that ended
+		folder         *tg.DialogFilter // folder: what Telegram accepted
 	}
 	pinMsg struct { // the pinned messages of a chat/topic, newest first; none when nothing is pinned
 		mk   string
@@ -139,12 +147,22 @@ type (
 )
 
 type model struct {
-	ctx     context.Context
-	api     *tg.Client
-	events  <-chan tea.Msg
-	cfg     config
-	track   func(context.Context, []chanTrack) // registers channels with the updates manager (may be nil)
-	selfKey string                             // chat key of Saved Messages: everything in it is yours, although the server does not mark it "out"
+	ctx      context.Context
+	api      *tg.Client
+	events   <-chan tea.Msg
+	cfg      config
+	track    func(context.Context, []chanTrack) // registers channels with the updates manager (may be nil)
+	xfers    []*xfer                            // sends and downloads in progress, oldest first; the newest is m.note
+	typing   map[string][]typer                 // chat key → who is typing there now (typing.go)
+	typingOn bool                               // the ticker that drops quiet typers runs
+	typedKey string                             // our own typing was last announced in this chat, at typedAt
+	typedAt  time.Time
+	folders  []folder // the user's chat folders, "all chats" included; none when they made no folder
+	folder   int      // index of the folder shown
+	tabMemo  *tabMemo // the folder tabs drawn last, reused while nothing they show changed (View is per frame)
+	tabOff   int      // first folder tab drawn (the row scrolls sideways when the tabs do not fit)
+	tabW     int      // the list width fitTabs last fitted the row to
+	selfKey  string   // chat key of Saved Messages: everything in it is yours, although the server does not mark it "out"
 
 	chats    []chat
 	archived map[string]bool
@@ -247,12 +265,12 @@ func newModel(ctx context.Context, api *tg.Client, events <-chan tea.Msg, cfg co
 	return model{
 		ctx: ctx, api: api, events: events, cfg: cfg, side: side, sideWant: want, folded: side == railW, focused: true, searching: true,
 		msgs: map[string][]line{}, more: map[string]bool{}, detached: map[string]bool{}, told: map[string]bool{}, thumbs: map[int]*thumb{},
-		archived: map[string]bool{}, drafts: map[string]string{}, pins: map[string][]pinned{}, pinAt: map[string]int{}, vp: viewport.New(0, 0), in: in, search: s,
+		archived: map[string]bool{}, typing: map[string][]typer{}, tabMemo: &tabMemo{}, drafts: map[string]string{}, pins: map[string][]pinned{}, pinAt: map[string]int{}, vp: viewport.New(0, 0), in: in, search: s,
 	}
 }
 
 func (m model) Init() tea.Cmd {
-	return tea.Batch(textinput.Blink, m.loadChatsCmd(), m.wait())
+	return tea.Batch(textinput.Blink, m.loadChatsCmd(), m.foldersCmd(), m.wait())
 }
 
 // --- commands -----------------------------------------------------------------
@@ -306,6 +324,19 @@ func (m model) readCmd(c chat, upto int) tea.Cmd {
 	}
 	return func() tea.Msg {
 		_ = markRead(ctx, api, c.peer, tp, upto) // best effort: the badge is already cleared locally
+		return nil
+	}
+}
+
+// reactReadCmd marks the reactions of chat c seen, locally and on the server.
+func (m *model) reactReadCmd(c *chat) tea.Cmd {
+	if c.reacts == 0 {
+		return nil
+	}
+	c.reacts = 0
+	ctx, api, p := m.ctx, m.api, c.peer
+	return func() tea.Msg {
+		_ = readReactions(ctx, api, p) // best effort, like readCmd
 		return nil
 	}
 }
@@ -428,7 +459,11 @@ func (m *model) filtering() bool { return strings.TrimSpace(m.search.Value()) !=
 func (m *model) visible() []int {
 	q := fold(strings.TrimSpace(m.search.Value()))
 	out := make([]int, 0, len(m.chats))
+	f := m.curFolder() // a search looks through every chat, not only the folder's
 	for i := range m.chats {
+		if q == "" && f != nil && !f.has(&m.chats[i]) {
+			continue
+		}
 		if q == "" || strings.Contains(fold(m.chats[i].title+" "+m.chats[i].username), q) {
 			out = append(out, i)
 		}
@@ -721,6 +756,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.render()
 		}
 	}
+	if len(m.folders) > 0 && m.side != m.tabW { // a new width: keep the folder shown in view
+		m.fitTabs()
+	}
 	if m.w > 0 && m.in.Height() != m.inH { // the message box grew or shrank: the message view gives or takes the rows
 		bottom := m.vp.AtBottom()
 		m.layout()
@@ -747,10 +785,14 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 
 	case tea.FocusMsg:
 		m.focused = true
-		if c := m.curChat(); c != nil && m.unreadHere(c) > 0 {
-			up := lastID(m.lines())
-			m.clearUnread(c)
-			return m.readCmd(*c, up)
+		if c := m.curChat(); c != nil {
+			cmd := m.reactReadCmd(c)
+			if m.unreadHere(c) > 0 {
+				up := lastID(m.lines())
+				m.clearUnread(c)
+				cmd = tea.Batch(cmd, m.readCmd(*c, up))
+			}
+			return cmd
 		}
 	case tea.BlurMsg:
 		m.focused = false
@@ -871,12 +913,28 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		m.note = ""
 		return tea.ExecProcess(exec.Command(mpvPath(), mpvArgs(msg.path)...), func(err error) tea.Msg {
 			if err != nil {
-				return doneMsg{"phát video lỗi: " + err.Error(), true}
+				return doneMsg{"phát video lỗi: " + err.Error(), true, nil}
 			}
-			return doneMsg{"", false}
+			return doneMsg{"", false, nil}
 		})
+	case xferTick:
+		return m.onXferTick(msg.p)
+	case typingMsg:
+		return m.onTyping(msg)
+	case typingTick:
+		return m.onTypingTick()
+	case statusMsg:
+		return m.onStatus(msg)
+	case foldersMsg:
+		return m.onFolders(msg)
+	case foldersChanged:
+		return m.foldersReload()
 	case doneMsg:
-		m.note = ""
+		if msg.x != nil {
+			m.endXfer(msg.x)
+		} else if len(m.xfers) == 0 {
+			m.note = ""
+		}
 		switch {
 		case msg.bad:
 			m.err = msg.text
@@ -931,6 +989,8 @@ func (m *model) update(msg tea.Msg) tea.Cmd {
 		return m.onNew(msg)
 	case reactMsg:
 		return m.onReact(msg)
+	case reactorsMsg:
+		return m.onReactors(msg)
 	case editMsg:
 		return m.onEdit(msg)
 	case renderTick:
@@ -984,7 +1044,7 @@ func (m *model) enter(c *chat) tea.Cmd {
 	m.layout()
 	mk := mkFor(c, c.topic)
 	_, cached := m.msgs[mk]
-	var cmds []tea.Cmd
+	cmds := []tea.Cmd{m.reactReadCmd(c)}
 	if !cached {
 		cmds = append(cmds, m.loadCmd(*c, mk))
 	}
@@ -1060,6 +1120,7 @@ func (m *model) onNew(ev newMsg) tea.Cmd {
 		return tea.Batch(append(cmds, m.loadChatsCmd())...)
 	}
 	l, reread := ev.line, false
+	m.typingDone(ev.key, l.sender)
 	if l.from == "?" { // the update did not carry the sender
 		if c.key[0] == 'u' { // in a private chat it is the chat itself
 			l.from = c.title
@@ -1077,6 +1138,7 @@ func (m *model) onNew(ev newMsg) tea.Cmd {
 		c.last = body
 	}
 	c.date = int(l.at.Unix())
+	c.lastID, c.lastOut = l.id, l.out && (l.msg == nil || !l.msg.Post)
 
 	var t *topic
 	if c.forum {
@@ -1169,10 +1231,19 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 			m.startMsgSearch()
 		}
 		return nil
+	case "ctrl+l":
+		if len(m.folders) > 0 {
+			m.setFolder(m.folder + 1)
+		}
+		return nil
 	case "ctrl+t":
 		return m.topicStep(1)
 	case "ctrl+y":
 		return m.topicStep(-1)
+	case "ctrl+x":
+		if m.cancelXfer() {
+			return nil
+		}
 	}
 	switch {
 	case m.ms != nil:
@@ -1211,9 +1282,16 @@ func (m *model) onKey(k tea.KeyMsg) tea.Cmd {
 		return m.send()
 	}
 	var c tea.Cmd
+	before := m.in.ver
 	m.in, c = m.in.Update(k)
 	m.emojiCheck()
-	return tea.Batch(c, m.mentionCheck())
+	var typed tea.Cmd
+	if m.in.ver != before && m.edit == nil && m.api != nil { // the text changed: we are typing (not a command)
+		if v := m.in.val; len(v) > 0 && v[0] != '/' && slices.ContainsFunc(v, func(r rune) bool { return !unicode.IsSpace(r) }) {
+			typed = m.typedCmd(m.curChat())
+		}
+	}
+	return tea.Batch(c, m.mentionCheck(), typed)
 }
 
 // scroll moves the message view; reaching the top while scrolling up loads older messages.
@@ -1265,6 +1343,7 @@ func (m *model) send() tea.Cmd {
 	}
 	m.msgs[mk] = addLine(m.msgs[mk], local)
 	c.last, c.date = "Bạn: "+flat(plain), int(now.Unix())
+	c.lastID, c.lastOut = 0, true
 	cp := *c
 	m.bump(cp.key)
 	m.reply = nil
@@ -1549,6 +1628,12 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 		m.dragSel(e)
 	case m.txt.on && e.Action == tea.MouseActionRelease:
 		return m.endSel(e)
+	case e.X < m.side && e.Y == listY0-1 && len(m.folders) > 0 && !m.rail && tea.MouseEvent(e).IsWheel(): // the wheel over the tabs scrolls them
+		if e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelLeft {
+			m.scrollTabs(-1)
+		} else {
+			m.scrollTabs(1)
+		}
 	case e.X < m.side && (e.Button == tea.MouseButtonWheelUp || e.Button == tea.MouseButtonWheelDown):
 		step := 1
 		if e.Button == tea.MouseButtonWheelUp {
@@ -1561,6 +1646,8 @@ func (m *model) onMouse(e tea.MouseMsg) tea.Cmd {
 		}
 		if e.Y < listY0-1 { // the search box
 			m.startSearch(false)
+		} else if e.Y == listY0-1 && len(m.folders) > 0 && !m.rail { // the folder tabs
+			m.clickFolder(e.X)
 		} else if e.Y >= listY0 {
 			vis := m.visible()
 			if p := m.top + (e.Y-listY0)/itemRows; p < len(vis) {
@@ -1680,43 +1767,48 @@ func (m *model) mediaCmd(l line) tea.Cmd {
 	if c := m.curChat(); c != nil {
 		p = c.peer
 	}
-	what := "ảnh"
+	app := m.ctx
+	var pr *xfer // a file shows its progress and can be stopped; a photo is small
 	if d, ok := docOf(l.msg); ok {
-		what = docName(d)
-		if d.Size > 0 {
-			what += " (" + humanSize(d.Size) + ")"
-		}
+		pr = newXfer(docName(d), d.Size, true)
+		ctx = m.startXfer(ctx, pr)
+	} else {
+		m.note = "⬇ Đang tải ảnh…"
 	}
-	m.note = "⬇ Đang tải " + what + "…"
 	work := func() tea.Msg {
 		if ph, ok := photoOf(l.msg); ok {
 			path, err := downloadPhoto(ctx, api, ph, false)
 			if err != nil {
-				return doneMsg{"tải ảnh lỗi: " + errText(err), true}
+				return doneMsg{"tải ảnh lỗi: " + errText(err), true, nil}
 			}
 			if pic, err := renderViewerImage(path, w, h-2); err == nil {
 				return viewMsg{viewer{pic, path, title}}
 			}
 			openURL(path)
-			return doneMsg{"Đã mở ảnh bằng ứng dụng hệ thống", false}
+			return doneMsg{"Đã mở ảnh bằng ứng dụng hệ thống", false, nil}
 		}
 		d, ok := docOf(l.msg)
 		if !ok {
-			return doneMsg{"", false}
+			return doneMsg{"", false, nil}
 		}
-		path, err := downloadDoc(ctx, api, d)
+		defer pr.stop()
+		defer pr.done.Store(true)
+		path, err := downloadDoc(ctx, api, d, pr)
 		if tgerr.Is(err, "FILE_REFERENCE_EXPIRED") && p != nil && l.id != 0 { // an old message: its file needs a fresh reference
 			if res, e := getMessages(ctx, api, p, []tg.InputMessageClass{&tg.InputMessageID{ID: l.id}}); e == nil {
 				for _, nl := range linesOf(res) {
 					if nd, ok := docOf(nl.msg); ok && nl.id == l.id {
 						d = nd
-						path, err = downloadDoc(ctx, api, d)
+						path, err = downloadDoc(ctx, api, d, pr)
 					}
 				}
 			}
 		}
-		if err != nil {
-			return doneMsg{"tải tệp lỗi: " + errText(err), true}
+		switch {
+		case errors.Is(err, context.Canceled) && app.Err() == nil:
+			return doneMsg{"Đã huỷ tải " + pr.label, false, pr}
+		case err != nil:
+			return doneMsg{"tải tệp lỗi: " + errText(err), true, pr}
 		}
 		if strings.HasPrefix(d.MimeType, "image/") {
 			if pic, err := renderViewerImage(path, w, h-2); err == nil {
@@ -1728,15 +1820,19 @@ func (m *model) mediaCmd(l line) tea.Cmd {
 		}
 		if openable[strings.ToLower(filepath.Ext(path))] {
 			openURL(path)
-			return doneMsg{"Đã lưu và mở " + path, false}
+			return doneMsg{"Đã lưu và mở " + path, false, pr}
 		}
 		revealFile(path)
-		return doneMsg{"Đã lưu " + path, false}
+		return doneMsg{"Đã lưu " + path, false, pr}
+	}
+	if pr != nil {
+		return tea.Batch(work, xferTickCmd(pr))
 	}
 	return work
 }
 
-// thumbCmds downloads thumbnails for the newest few photos of the open view (BONAGRAM_PREVIEWS=1).
+// thumbCmds downloads thumbnails for the newest few photos of the open view (BONAGRAM_PREVIEWS=1), pictures sent
+// as files included (their server-made thumbnail, not the original).
 func (m *model) thumbCmds() tea.Cmd {
 	if m.api == nil {
 		return nil
@@ -1748,6 +1844,8 @@ func (m *model) thumbCmds() tea.Cmd {
 	var photos []line
 	for _, l := range m.lines() {
 		if _, ok := photoOf(l.msg); ok && l.id != 0 {
+			photos = append(photos, l)
+		} else if _, _, ok := imageDocOf(l.msg); ok && l.id != 0 {
 			photos = append(photos, l)
 		}
 	}
@@ -1761,8 +1859,15 @@ func (m *model) thumbCmds() tea.Cmd {
 		m.thumbs[l.id] = &thumb{}
 		ctx, api, id, p := m.ctx, m.api, l.id, l.msg
 		cmds = append(cmds, func() tea.Msg {
-			ph, _ := photoOf(p)
-			path, err := downloadPhoto(ctx, api, ph, true)
+			var path string
+			var err error
+			if ph, ok := photoOf(p); ok {
+				path, err = downloadPhoto(ctx, api, ph, true)
+			} else if d, typ, ok := imageDocOf(p); ok {
+				path, err = downloadDocThumb(ctx, api, d, typ)
+			} else {
+				err = fmt.Errorf("không có ảnh xem trước")
+			}
 			if err != nil {
 				return thumbMsg{id: id, err: err}
 			}
@@ -1854,13 +1959,20 @@ func (m *model) onReact(ev reactMsg) tea.Cmd {
 			continue
 		}
 		if i := indexOfID(ls, ev.id); i >= 0 {
-			ls[i].reacts = ev.rs
+			ls[i].reacts, ls[i].seeWho = ev.rs, ev.canSee
 			shown = shown || mk == open
 		}
 	}
 	if shown && !m.redraw {
 		m.redraw = true
 		cmds = append(cmds, tea.Tick(250*time.Millisecond, func(time.Time) tea.Msg { return renderTick{} }))
+	}
+	if i := m.index(ev.key); ev.unread && i >= 0 {
+		c := &m.chats[i]
+		c.reacts++
+		if ev.key == m.cur && m.focused { // seen right away
+			cmds = append(cmds, m.reactReadCmd(c))
+		}
 	}
 	return tea.Batch(cmds...)
 }

@@ -596,7 +596,14 @@ func TestReactionsLive(t *testing.T) {
 	if mm.(model).redraw {
 		t.Fatal("a reaction elsewhere must not trigger a redraw")
 	}
+	send(reactMsg{key: "u2", id: 9, rs: []reaction{{"🔥", 2, false}}, unread: true})
+	if m := mm.(model); m.chats[m.index("u2")].reacts != 1 {
+		t.Fatal("an unseen reaction in a closed chat is counted")
+	}
 	send(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if m := mm.(model); m.chats[m.index("u2")].reacts != 0 {
+		t.Fatal("opening the chat marks its reactions seen")
+	}
 	if v := ansi.Strip(mm.View()); !strings.Contains(v, "🔥 2") {
 		t.Fatalf("reaction stored for the other chat is missing:\n%s", v)
 	}

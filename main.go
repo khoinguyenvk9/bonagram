@@ -264,14 +264,56 @@ func run(ctx context.Context) error {
 		case <-ctx.Done():
 		}
 	}
+	// typing and online updates come often and are only worth something right now: when the queue is full
+	// they are dropped instead of holding up the updates that matter
+	pushLossy := func(msg tea.Msg) {
+		select {
+		case events <- msg:
+		default:
+		}
+	}
 	d := tg.NewUpdateDispatcher()
+	d.OnUserTyping(func(_ context.Context, e tg.Entities, u *tg.UpdateUserTyping) error {
+		key := peerKey(&tg.PeerUser{UserID: u.UserID})
+		if ev, ok := typingFrom(e, key, &tg.PeerUser{UserID: u.UserID}, u.TopMsgID, u.Action); ok {
+			pushLossy(ev)
+		}
+		return nil
+	})
+	d.OnChatUserTyping(func(_ context.Context, e tg.Entities, u *tg.UpdateChatUserTyping) error {
+		if ev, ok := typingFrom(e, peerKey(&tg.PeerChat{ChatID: u.ChatID}), u.FromID, 0, u.Action); ok {
+			pushLossy(ev)
+		}
+		return nil
+	})
+	d.OnChannelUserTyping(func(_ context.Context, e tg.Entities, u *tg.UpdateChannelUserTyping) error {
+		if ev, ok := typingFrom(e, peerKey(&tg.PeerChannel{ChannelID: u.ChannelID}), u.FromID, u.TopMsgID, u.Action); ok {
+			pushLossy(ev)
+		}
+		return nil
+	})
+	d.OnUserStatus(func(_ context.Context, _ tg.Entities, u *tg.UpdateUserStatus) error {
+		pushLossy(statusMsg{key: peerKey(&tg.PeerUser{UserID: u.UserID}), p: presenceOf(u.Status)})
+		return nil
+	})
+	// folders changed on another device: read them again
+	d.OnDialogFilter(func(context.Context, tg.Entities, *tg.UpdateDialogFilter) error { push(foldersChanged{}); return nil })
+	d.OnDialogFilters(func(context.Context, tg.Entities, *tg.UpdateDialogFilters) error { push(foldersChanged{}); return nil })
+	d.OnDialogFilterOrder(func(context.Context, tg.Entities, *tg.UpdateDialogFilterOrder) error {
+		push(foldersChanged{})
+		return nil
+	})
 	d.OnNewMessage(func(_ context.Context, e tg.Entities, u *tg.UpdateNewMessage) error {
 		push(toNewMsg(e, u.Message))
 		return nil
 	})
 	d.OnMessageReactions(func(_ context.Context, _ tg.Entities, u *tg.UpdateMessageReactions) error {
 		if key := peerKey(u.Peer); key != "" {
-			push(reactMsg{key: key, id: u.MsgID, rs: toReactions(u.Reactions)})
+			unread := false
+			for _, r := range u.Reactions.RecentReactions {
+				unread = unread || r.Unread
+			}
+			push(reactMsg{key: key, id: u.MsgID, rs: toReactions(u.Reactions), unread: unread, canSee: u.Reactions.CanSeeList})
 		}
 		return nil
 	})
@@ -343,6 +385,7 @@ func run(ctx context.Context) error {
 		case "blocks":
 			kitty, rawProto = false, ""
 		}
+		cfg.premium = self.Premium
 		mdl := newModel(ctx, client.API(), events, cfg, loadSide())
 		if marker := filepath.Join(configDir(), "help-seen"); fileMissing(marker) {
 			mdl.help = true // the very first launch opens the guide; F1 brings it back

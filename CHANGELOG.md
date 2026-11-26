@@ -2,6 +2,26 @@
 
 Tiếng Việt: [CHANGELOG.vi.md](CHANGELOG.vi.md)
 
+## v0.4.0
+
+**Files and video**
+- Sending and downloading files show their progress (percent and size) in the title row; `Ctrl+X` cancels the newest transfer. Files over Telegram's limit (2 GB, 4 GB with Premium) are refused before uploading, and failed sends now say why.
+- mp4/mov/m4v files are sent as videos that play inside Telegram (duration, size and streaming read from the file; a cover picture when `ffmpeg` is installed).
+- Pictures sent "as a file" (uncompressed) show a preview under their file card.
+
+**Chats**
+- Chat folders as tabs above the list (`Ctrl+L` or a click to switch, unread counts per tab); the tab row scrolls sideways with ‹ › or the wheel when it does not fit.
+- Right-click a chat › Thư mục adds it to or removes it from a folder (saved to Telegram, so other devices follow).
+- "Đang soạn tin…" (and recording, sending a photo, …) in the chat list and the chat header; others see when you type. Online status ("đang hoạt động", "hoạt động 5 phút trước") under a person's name.
+- ✓/✓✓ for your last message in the chat list.
+
+**Reading**
+- Right-click a message › Ai đã thả react: who reacted with what, filtered by emoji; a click opens the chat with that person. Read only; in groups only where Telegram allows it, not in channels.
+- ←/→/Backspace/Delete in the message box step over a whole character (accents typed as separate marks, emoji sequences).
+
+**Docs**
+- Linux install section (prebuilt binaries checked on Ubuntu, Fedora and Alpine); five more screenshots (menu, reactions, folders, upload, rail).
+
 ## v0.3.0
 
 **New look** (from a design canvas)

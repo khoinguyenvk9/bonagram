@@ -2,6 +2,26 @@
 
 English: [CHANGELOG.md](CHANGELOG.md)
 
+## v0.4.0
+
+**Tệp và video**
+- Gửi và tải tệp hiện tiến trình (phần trăm và dung lượng) ở dòng tiêu đề; `Ctrl+X` huỷ lượt gửi/tải mới nhất. Tệp vượt giới hạn của Telegram (2 GB, 4 GB với Premium) bị chặn trước khi tải lên, và gửi lỗi giờ có báo lý do.
+- Tệp mp4/mov/m4v được gửi dạng video xem được ngay trong Telegram (thời lượng, kích thước và phát trực tiếp đọc từ tệp; có ảnh bìa nếu máy cài `ffmpeg`).
+- Ảnh gửi "dạng tệp" (không nén) có ảnh xem trước dưới thẻ tệp.
+
+**Chat**
+- Thư mục chat thành các tab trên danh sách (`Ctrl+L` hoặc bấm để đổi, số chưa đọc từng tab); hàng tab cuộn ngang bằng ‹ › hoặc con lăn khi không vừa.
+- Chuột phải vào chat › Thư mục để thêm vào hoặc bỏ khỏi thư mục (lưu lên Telegram, thiết bị khác cũng đổi theo).
+- "Đang soạn tin…" (và đang ghi âm, đang gửi ảnh, …) trong danh sách và tiêu đề chat; người khác cũng thấy khi bạn gõ. Trạng thái online ("đang hoạt động", "hoạt động 5 phút trước") dưới tên người.
+- ✓/✓✓ cho tin cuối của bạn trong danh sách chat.
+
+**Đọc tin**
+- Chuột phải vào tin › Ai đã thả react: ai thả gì, lọc theo emoji; bấm vào người để mở chat với họ. Chỉ đọc; trong nhóm chỉ khi Telegram cho xem, kênh thì không.
+- ←/→/Backspace/Delete trong ô soạn đi qua trọn một ký tự (dấu gõ tách rời, emoji ghép).
+
+**Tài liệu**
+- Hướng dẫn cài trên Linux (bản dựng sẵn đã thử trên Ubuntu, Fedora và Alpine); thêm năm ảnh minh hoạ (menu, reaction, thư mục, gửi tệp, cột thu gọn).
+
 ## v0.3.0
 
 **Giao diện mới** (theo bản thiết kế)

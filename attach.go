@@ -20,6 +20,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/gotd/td/telegram/message"
 	"github.com/gotd/td/telegram/message/styling"
+	"github.com/gotd/td/telegram/uploader"
 	"github.com/gotd/td/tg"
 )
 
@@ -97,15 +98,19 @@ func parsePaths(s string) []string {
 
 type upload struct {
 	path  string
-	photo bool // a small jpg/png goes as a photo, anything else as a file
+	photo bool       // a small jpg/png goes as a photo
+	video *videoMeta // an MP4/MOV whose boxes could be read goes as a video; anything else as a file
 }
 
+// media is a photo or a video: Telegram puts those together in one album, but never with files.
+func (u upload) media() bool { return u.photo || u.video != nil }
+
 // groups cuts the files into the messages that carry them: runs of the same kind, at most albumMax each,
-// because Telegram does not mix photos and files in one album.
+// because Telegram does not mix photos/videos and files in one album.
 func groups(us []upload) [][]upload {
 	var out [][]upload
 	for _, u := range us {
-		if n := len(out); n > 0 && out[n-1][0].photo == u.photo && len(out[n-1]) < albumMax {
+		if n := len(out); n > 0 && out[n-1][0].media() == u.media() && len(out[n-1]) < albumMax {
 			out[n-1] = append(out[n-1], u)
 		} else {
 			out = append(out, []upload{u})
@@ -114,18 +119,38 @@ func groups(us []upload) [][]upload {
 	return out
 }
 
+// fileMax is the largest file Telegram takes: 4000 parts of 512 KB (twice that with Premium).
+func fileMax(premium bool) int64 {
+	if premium {
+		return 4000 << 20
+	}
+	return 2000 << 20
+}
+
 // sendFiles uploads paths in order. The caption goes on the first file. replyTo 0 = no reply; in a forum topic
 // the caller passes the topic root as replyTo, which is how a message is posted into a topic.
-func sendFiles(ctx context.Context, api *tg.Client, p tg.InputPeerClass, paths []string, caption string, replyTo int) error {
+// pr (may be nil) is told every part that reaches the server.
+func sendFiles(ctx context.Context, api *tg.Client, p tg.InputPeerClass, paths []string, caption string, replyTo int, pr *xfer) error {
 	us := make([]upload, len(paths))
 	for i, path := range paths {
 		st, err := checkFile(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", filepath.Base(path), err)
 		}
-		us[i] = upload{path, photoExt[strings.ToLower(filepath.Ext(path))] && st.Size() <= 10<<20}
+		ext := strings.ToLower(filepath.Ext(path))
+		us[i] = upload{path: path, photo: photoExt[ext] && st.Size() <= 10<<20}
+		if videoMIME[ext] != "" {
+			if v, ok := probeVideo(path); ok {
+				us[i].video = &v
+			}
+		}
 	}
-	b := message.NewSender(api).To(p).CloneBuilder()
+	up := uploader.NewUploader(api)
+	if pr != nil {
+		up = up.WithProgress(pr)
+	}
+	b := message.NewSender(api).WithUploader(up).To(p).CloneBuilder()
+	thumbs := uploader.NewUploader(api) // covers are small and not counted in the progress
 	if replyTo != 0 {
 		b = b.Reply(replyTo)
 	}
@@ -135,25 +160,21 @@ func sendFiles(ctx context.Context, api *tg.Client, p tg.InputPeerClass, paths [
 			cap = []styling.StyledTextOption{styling.Plain(caption)}
 			caption = "" // only the first message gets it
 		}
-		if err := sendGroup(ctx, b, g, cap); err != nil {
+		if err := sendGroup(ctx, b, thumbs, g, cap); err != nil {
 			return fmt.Errorf("%s: %w", filepath.Base(g[0].path), err)
 		}
 	}
 	return nil
 }
 
-func sendGroup(ctx context.Context, b *message.Builder, g []upload, cap []styling.StyledTextOption) error {
-	if len(g) == 1 {
-		up := b.Upload(message.FromPath(g[0].path))
-		var err error
-		if g[0].photo {
-			_, err = up.Photo(ctx, cap...)
-		} else {
-			_, err = up.File(ctx, cap...)
-		}
-		return err
-	}
-	var media []message.MultiMediaOption
+// mediaOpt is what one file of a message becomes; gotd's photo, video and file builders are all of both kinds.
+type mediaOpt interface {
+	message.MediaOption
+	message.MultiMediaOption
+}
+
+func sendGroup(ctx context.Context, b *message.Builder, thumbs *uploader.Uploader, g []upload, cap []styling.StyledTextOption) error {
+	var media []mediaOpt
 	for i, u := range g {
 		f, err := b.Upload(message.FromPath(u.path)).AsInputFile(ctx)
 		if err != nil {
@@ -163,14 +184,46 @@ func sendGroup(ctx context.Context, b *message.Builder, g []upload, cap []stylin
 		if i == 0 {
 			c = cap
 		}
-		if u.photo {
+		switch {
+		case u.photo:
 			media = append(media, message.UploadedPhoto(f, c...))
-		} else {
+		case u.video != nil:
+			media = append(media, videoOpt(ctx, thumbs, u, f, c))
+		default:
 			media = append(media, message.File(f, c...))
 		}
 	}
-	_, err := b.Album(ctx, media[0], media[1:]...)
+	if len(media) == 1 {
+		_, err := b.Media(ctx, media[0])
+		return err
+	}
+	rest := make([]message.MultiMediaOption, 0, len(media)-1)
+	for _, o := range media[1:] {
+		rest = append(rest, o)
+	}
+	_, err := b.Album(ctx, media[0], rest...)
 	return err
+}
+
+// videoOpt sends u as a video that plays in Telegram: its name, type, duration, frame size, streaming flag and,
+// when ffmpeg made one, a cover picture.
+func videoOpt(ctx context.Context, thumbs *uploader.Uploader, u upload, f tg.InputFileClass, c []styling.StyledTextOption) mediaOpt {
+	doc := message.UploadedDocument(f, c...).Filename(filepath.Base(u.path)).MIME(videoMIME[strings.ToLower(filepath.Ext(u.path))])
+	if dir, err := cacheDir(); err == nil {
+		if tmp, err := os.MkdirTemp(dir, "thumb-"); err == nil {
+			if t := videoThumb(ctx, u.path, tmp); t != "" {
+				if tf, err := thumbs.FromPath(ctx, t); err == nil {
+					doc = doc.Thumb(tf)
+				}
+			}
+			os.RemoveAll(tmp)
+		}
+	}
+	v := doc.Video().Duration(u.video.dur).Resolution(u.video.w, u.video.h)
+	if u.video.stream {
+		v = v.SupportsStreaming()
+	}
+	return v
 }
 
 // --- the file dialog ----------------------------------------------------------------
@@ -286,6 +339,22 @@ func (m *model) sendAttached(c chat, caption string) tea.Cmd {
 	case c.forum && c.topic > 1:
 		rt = c.topic // posting into a topic = replying to its root
 	}
+	// Sizes are checked before anything is sent: a file over Telegram's limit would otherwise upload for
+	// minutes and then fail.
+	var total int64
+	limit := fileMax(m.cfg.premium)
+	for _, path := range m.attach {
+		st, err := checkFile(path)
+		if err != nil {
+			m.err = filepath.Base(path) + ": " + errText(err)
+			return nil
+		}
+		if st.Size() > limit {
+			m.err = fmt.Sprintf("%s nặng %s, Telegram chỉ nhận tệp tới %s", filepath.Base(path), humanSize(st.Size()), humanSize(limit))
+			return nil
+		}
+		total += st.Size()
+	}
 	paths, ctx, api := m.attach, m.ctx, m.api
 	m.attach, m.reply = nil, nil
 	m.in.SetValue("")
@@ -295,8 +364,13 @@ func (m *model) sendAttached(c chat, caption string) tea.Cmd {
 	if len(paths) > 1 {
 		label = fmt.Sprintf("%d tệp", len(paths))
 	}
+	pr := newXfer(label, total, false)
+	ctx = m.startXfer(ctx, pr)
 	work := func() tea.Msg {
-		return actMsg{kind: "file", text: label, key: c.key, err: sendFiles(ctx, api, c.peer, paths, caption, rt)}
+		defer pr.stop()
+		err := sendFiles(ctx, api, c.peer, paths, caption, rt, pr)
+		pr.done.Store(true)
+		return actMsg{kind: "file", text: label, key: c.key, err: err, up: pr}
 	}
-	return tea.Batch(m.toastCmd("Đang gửi "+label+"…"), work)
+	return tea.Batch(work, xferTickCmd(pr))
 }

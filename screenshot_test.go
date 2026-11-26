@@ -36,6 +36,8 @@ func TestScreenshots(t *testing.T) {
 
 	a := demoModel(t)
 	writeShot(t, filepath.Join(dir, "screenshot.html"), a.mm.View())
+	shotScenes(t, dir)
+	a = demoModel(t)
 
 	// Ctrl+F: searching the messages of the chat
 	a.send(tea.KeyMsg{Type: tea.KeyCtrlF})
@@ -61,13 +63,21 @@ func demoModel(t *testing.T) *actionModel {
 	y, mo, d := time.Now().Date() // today, so the picture always reads "Hôm nay" and today's times
 	at := func(h, mi int) time.Time { return time.Date(y, mo, d, h, mi, 0, 0, time.Local) }
 	a.send(chatsMsg{chats: []chat{
-		{key: "u1", title: "Minh Anh", last: "Tối nay họp lúc mấy giờ nhỉ?", date: int(at(15, 5).Unix()), peer: &tg.InputPeerUser{UserID: 1}},
+		{key: "u1", title: "Minh Anh", last: "Tối nay họp lúc mấy giờ nhỉ?", date: int(at(15, 5).Unix()), peer: &tg.InputPeerUser{UserID: 1}, contact: true,
+			seen: presence{until: int(time.Now().Add(time.Hour).Unix())}},
 		{key: "c9", title: "Nhóm Dev Go Việt Nam", last: "Nhung: [file] bao-cao-hieu-nang.pdf", date: int(at(15, 9).Unix()), peer: &tg.InputPeerChannel{ChannelID: 9}, pinned: true},
-		{key: "u2", title: "Lan Phương", last: "Bạn: ok nhé, mai gặp", date: int(at(9, 32).Unix()), peer: &tg.InputPeerUser{UserID: 2}},
+		{key: "u2", title: "Lan Phương", last: "Bạn: ok nhé, mai gặp", date: int(at(9, 32).Unix()), peer: &tg.InputPeerUser{UserID: 2}, contact: true,
+			lastOut: true, lastID: 30, readOut: 30},
 		{key: "c3", title: "Thông báo công ty", last: "Hành chính: nghỉ lễ 2/9", unread: 5, date: int(at(8, 0).Add(-24 * time.Hour).Unix()), peer: &tg.InputPeerChannel{ChannelID: 3}},
 		{key: "u4", title: "Quang Huy", last: "[location] 10.77690, 106.70090", date: int(at(8, 0).Add(-72 * time.Hour).Unix()), peer: &tg.InputPeerUser{UserID: 4}},
-		{key: "u5", title: "Bố", last: "Con nhớ ăn cơm nhé", date: int(at(8, 0).Add(-120 * time.Hour).Unix()), peer: &tg.InputPeerUser{UserID: 5}},
+		{key: "u5", title: "Bố", last: "Con nhớ ăn cơm nhé", date: int(at(8, 0).Add(-120 * time.Hour).Unix()), peer: &tg.InputPeerUser{UserID: 5}, contact: true},
 	}})
+	work := &tg.DialogFilter{ID: 2, Title: tg.TextWithEntities{Text: "Công việc"}, Groups: true, Broadcasts: true}
+	family := &tg.DialogFilter{ID: 3, Title: tg.TextWithEntities{Text: "Gia đình"}, IncludePeers: []tg.InputPeerClass{&tg.InputPeerUser{UserID: 5}}}
+	friends := &tg.DialogFilter{ID: 4, Title: tg.TextWithEntities{Text: "Bạn bè"}, IncludePeers: []tg.InputPeerClass{&tg.InputPeerUser{UserID: 1}, &tg.InputPeerUser{UserID: 2}}}
+	a.send(foldersMsg{list: toFolders([]tg.DialogFilterClass{&tg.DialogFilterDefault{}, work, family, friends}, "u100")})
+	a.send(typingMsg{key: "u1", who: "u1", action: "đang soạn tin"})
+	a.send(typingMsg{key: "c9", who: "u12", name: "Hà", action: "đang soạn tin"})
 	for i := 0; i < 2; i++ { // open the group
 		a.send(tea.KeyMsg{Type: tea.KeyCtrlN})
 	}
@@ -105,6 +115,7 @@ func demoModel(t *testing.T) *actionModel {
 		l(8, "Quang Huy", "u4", 15, 10, geo, false, 0),
 	}
 	ls[1].reacts = []reaction{{"♥", 3, true}, {"👍", 1, false}}
+	ls[1].seeWho = true
 	ls[4].mentioned = true
 	a.send(histMsg{mk: "c9", key: "c9", lines: ls})
 	a.send(pinMsg{mk: "c9", list: []pinned{{1, "Quy định nhóm: không spam, gửi code trong khối code, hỏi rõ ràng"}}})
@@ -283,4 +294,101 @@ span{display:inline-block;height:18px;vertical-align:top}
 	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// shotScenes draws the other README pictures, each from a fresh demo: the right-click menu of a message, who
+// reacted, adding a chat to a folder, a video being sent, and a private chat beside the folded list.
+func shotScenes(t *testing.T, dir string) {
+	// right-click on Hà's message: quick reactions on top, then the actions
+	a := demoModel(t)
+	m := a.m()
+	m.openMenu(60, msgRow(t, m, 2))
+	writeShot(t, filepath.Join(dir, "screenshot-menu.html"), m.View())
+
+	// … › Ai đã thả react
+	a = demoModel(t)
+	a.rec.users = []tg.UserClass{
+		&tg.User{ID: 11, FirstName: "Bình"}, &tg.User{ID: 13, FirstName: "Nhung"}, &tg.User{ID: 4, FirstName: "Quang", LastName: "Huy"},
+		&tg.User{ID: 100, FirstName: "Tôi", Self: true},
+	}
+	a.rec.reactors = []tg.MessagePeerReaction{
+		{PeerID: &tg.PeerUser{UserID: 100}, Reaction: &tg.ReactionEmoji{Emoticon: "♥"}, My: true},
+		{PeerID: &tg.PeerUser{UserID: 11}, Reaction: &tg.ReactionEmoji{Emoticon: "♥"}},
+		{PeerID: &tg.PeerUser{UserID: 13}, Reaction: &tg.ReactionEmoji{Emoticon: "♥"}},
+		{PeerID: &tg.PeerUser{UserID: 4}, Reaction: &tg.ReactionEmoji{Emoticon: "👍"}},
+	}
+	m = a.m()
+	m.openMenu(60, msgRow(t, m, 2))
+	for i, it := range m.menu.items {
+		if it.label == "Ai đã thả react" {
+			a.set(m)
+			cmd := m.pickMenu(i)
+			a.set(m)
+			a.run(cmd)
+			break
+		}
+	}
+	writeShot(t, filepath.Join(dir, "screenshot-reactions.html"), a.mm.View())
+
+	// right-click Lan Phương in the list › Thư mục
+	a = demoModel(t)
+	m = a.m()
+	m.openChatMenu(m.chats[m.index("u2")], 4, listY0+2*itemRows+1)
+	for _, it := range m.menu.items {
+		if it.label == "Thư mục" {
+			it.run(m)
+		}
+	}
+	writeShot(t, filepath.Join(dir, "screenshot-folders.html"), m.View())
+
+	// a video on its way: the progress in the title row, Ctrl+X in the hints
+	a = demoModel(t)
+	m = a.m()
+	m.browse, m.bsel = false, 0
+	m.in.Focus()
+	x := newXfer("demo-sprint-12.mp4", 350<<20, false) // a long name: the progress must still show
+	m.typing = map[string][]typer{}
+	x.parts[1] = 147 << 20
+	m.xfers, m.note = []*xfer{x}, x.text()
+	m.render()
+	writeShot(t, filepath.Join(dir, "screenshot-upload.html"), m.View())
+
+	// a private chat with the list folded into initials: online status, read marks
+	a = demoModel(t)
+	m = a.m()
+	m.folded = true
+	a.set(m)
+	a.send(tea.WindowSizeMsg{Width: shotW, Height: shotH})
+	m = a.m()
+	m.typing = map[string][]typer{}
+	a.set(m)
+	y, mo, d := time.Now().Date()
+	at := func(h, mi int) time.Time { return time.Date(y, mo, d, h, mi, 0, 0, time.Local) }
+	m = a.m()
+	m.open(m.index("u1"))
+	a.set(m)
+	a.send(histMsg{mk: "u1", key: "u1", lines: []line{
+		{id: 20, from: "Bạn", out: true, text: "Chiều nay mình gửi bản thiết kế mới nhé", at: at(14, 2)},
+		{id: 21, from: "Bạn", out: true, text: "Có cả phần màn hình gọn cho cửa sổ hẹp", at: at(14, 3)},
+		{id: 22, from: "Minh Anh", sender: "u1", text: "Tuyệt, gửi luôn đi để mình xem trước buổi họp", at: at(14, 40)},
+		{id: 23, from: "Bạn", out: true, text: "Đã gửi vào nhóm rồi đó", at: at(15, 1)},
+		{id: 24, from: "Minh Anh", sender: "u1", text: "Tối nay họp lúc mấy giờ nhỉ?", at: at(15, 5)},
+	}})
+	m = a.m()
+	m.chats[m.index("u1")].readOut = 23
+	m.render()
+	a.set(m)
+	writeShot(t, filepath.Join(dir, "screenshot-rail.html"), a.mm.View())
+}
+
+// msgRow is a screen row of message id in the open view.
+func msgRow(t *testing.T, m *model, id int) int {
+	t.Helper()
+	for y := 0; y < m.h; y++ {
+		if i, ok := m.msgIndexAt(y); ok && m.lines()[i].id == id {
+			return y
+		}
+	}
+	t.Fatalf("message %d is not on screen", id)
+	return 0
 }

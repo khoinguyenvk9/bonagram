@@ -45,24 +45,39 @@ var realCursor atomic.Pointer[cursorPos]
 
 type cursorPos struct{ row, col int } // 0-based screen cell
 
+// drawing is set by the first frame written to the terminal (never in tests, which only call View).
+var drawing atomic.Bool
+
+// setCursor records where the real cursor goes. A move that leaves the frame unchanged (←, Home, a click in
+// the box) makes Bubble Tea skip the frame and with it the tail of lockedOut.Write, so the move is written
+// here too: otherwise the IME draws its half-typed word where the cursor was before.
 func setCursor(row, col int) {
-	if row < 0 {
-		realCursor.Store(nil)
-		return
+	var p *cursorPos
+	if row >= 0 {
+		p = &cursorPos{row, col}
 	}
-	realCursor.Store(&cursorPos{row, col})
+	old := realCursor.Swap(p)
+	if drawing.Load() && ((old == nil) != (p == nil) || old != nil && p != nil && *old != *p) {
+		termWrite(cursorSeq(p))
+	}
+}
+
+func cursorSeq(p *cursorPos) string {
+	if p == nil {
+		return "\x1b[?25l"
+	}
+	return fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", p.row+1, p.col+1)
 }
 
 func (o lockedOut) Write(b []byte) (int, error) {
 	outMu.Lock()
 	defer outMu.Unlock()
 	if bytes.Contains(b, []byte("\x1b[?1049l")) { // leaving the alternate screen: leave the cursor alone
+		drawing.Store(false)
 		return o.f.Write(b)
 	}
-	tail := "\x1b[?25l"
-	if p := realCursor.Load(); p != nil {
-		tail = fmt.Sprintf("\x1b[%d;%dH\x1b[?25h", p.row+1, p.col+1)
-	}
+	drawing.Store(true)
+	tail := cursorSeq(realCursor.Load())
 	// Autowrap is off while a frame is drawn: if the terminal measures some character wider than we did, the
 	// overflow is clipped instead of wrapping onto the next line and shifting (and overlapping) the rest of
 	// the screen. It is back on right after, so a crash can not leave the shell without it.
@@ -119,9 +134,14 @@ func docOf(m *tg.Message) (*tg.Document, bool) {
 
 // pickSize returns the photo size type to download: the largest, or for a thumbnail the ~320px "m" one.
 func pickSize(p *tg.Photo, thumb bool) string {
+	return pickOf(p.Sizes, thumb)
+}
+
+// pickOf is pickSize over any list of sizes (a photo's, or the thumbnails of a document).
+func pickOf(sizes []tg.PhotoSizeClass, thumb bool) string {
 	best, bestArea := "", -1
 	have := map[string]bool{}
-	for _, s := range p.Sizes {
+	for _, s := range sizes {
 		var t string
 		var w, h int
 		switch v := s.(type) {
@@ -148,11 +168,21 @@ func pickSize(p *tg.Photo, thumb bool) string {
 }
 
 func fetch(ctx context.Context, api *tg.Client, loc tg.InputFileLocationClass, path string) (string, error) {
+	return fetchP(ctx, api, loc, path, nil)
+}
+
+// fetchP is fetch telling pr (may be nil) how many bytes arrived. The size is not given to the downloader: with
+// it, a download the server cut short came out padded to the size instead of failing the size check.
+func fetchP(ctx context.Context, api *tg.Client, loc tg.InputFileLocationClass, path string, pr *xfer) (string, error) {
 	if _, err := os.Stat(path); err == nil {
 		return path, nil
 	}
 	tmp := path + ".part"
-	if _, err := downloader.NewDownloader().Download(api, loc).ToPath(ctx, tmp); err != nil {
+	b := downloader.NewDownloader().Download(api, loc)
+	if pr != nil {
+		b = b.WithProgress(pr.got)
+	}
+	if _, err := b.ToPath(ctx, tmp); err != nil {
 		os.Remove(tmp)
 		return "", err
 	}
@@ -170,6 +200,28 @@ func downloadPhoto(ctx context.Context, api *tg.Client, p *tg.Photo, thumb bool)
 	}
 	loc := &tg.InputPhotoFileLocation{ID: p.ID, AccessHash: p.AccessHash, FileReference: p.FileReference, ThumbSize: typ}
 	return fetch(ctx, api, loc, filepath.Join(dir, fmt.Sprintf("p%d-%s.jpg", p.ID, typ)))
+}
+
+// imageDocOf is a picture sent as a file ("without compression"): a document of an image type that is not a
+// sticker or GIF and has a thumbnail the server made for it. It returns the thumbnail size to fetch, so the view
+// shows a preview without downloading the whole original (which can be tens of MB).
+func imageDocOf(m *tg.Message) (*tg.Document, string, bool) {
+	d, ok := docOf(m)
+	if !ok || d == nil || !strings.HasPrefix(d.MimeType, "image/") || infoOf(d).kind != "file" {
+		return nil, "", false
+	}
+	typ := pickOf(d.Thumbs, true)
+	return d, typ, typ != ""
+}
+
+// downloadDocThumb keeps the server's thumbnail of a document in the cache folder (thumbnails are JPEG).
+func downloadDocThumb(ctx context.Context, api *tg.Client, d *tg.Document, typ string) (string, error) {
+	dir, err := cacheDir()
+	if err != nil {
+		return "", err
+	}
+	loc := &tg.InputDocumentFileLocation{ID: d.ID, AccessHash: d.AccessHash, FileReference: d.FileReference, ThumbSize: typ}
+	return fetch(ctx, api, loc, filepath.Join(dir, fmt.Sprintf("d%d-%s.jpg", d.ID, typ)))
 }
 
 func docName(d *tg.Document) string {
@@ -255,13 +307,13 @@ func savePath(dir, name string, size int64) string {
 }
 
 // downloadDoc saves a document into the Downloads folder and checks that all of it arrived.
-func downloadDoc(ctx context.Context, api *tg.Client, d *tg.Document) (string, error) {
+func downloadDoc(ctx context.Context, api *tg.Client, d *tg.Document, pr *xfer) (string, error) {
 	dir, err := downloadsDir()
 	if err != nil {
 		return "", err
 	}
 	loc := &tg.InputDocumentFileLocation{ID: d.ID, AccessHash: d.AccessHash, FileReference: d.FileReference}
-	path, err := fetch(ctx, api, loc, savePath(dir, docName(d), d.Size))
+	path, err := fetchP(ctx, api, loc, savePath(dir, docName(d), d.Size), pr)
 	if err != nil {
 		return "", err
 	}

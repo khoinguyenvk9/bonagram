@@ -401,6 +401,13 @@ func chatItem(c chat, sel bool, w int, now time.Time) []string {
 	}
 	cw := max(w-4, 4) // bar + space on the left, 2 on the right
 	when := shortTime(c.date, now)
+	tick := "" // ✓ sent, ✓✓ read: like Telegram, by the time of a chat whose newest message is ours
+	if c.lastOut {
+		tick = ink(cMuted, "✓") + " "
+		if c.lastID != 0 && c.lastID <= c.readOut {
+			tick = ink(cAccent, "✓✓") + " "
+		}
+	}
 	badge := ""
 	if c.unread > 0 {
 		n := strconv.Itoa(c.unread)
@@ -410,15 +417,18 @@ func chatItem(c chat, sel bool, w int, now time.Time) []string {
 		badge = " " + chip(cBg, cAccent, " "+n+" ", true)
 	}
 	// the time on the first row, the unread count under it, on the right like Telegram
-	name := fit(c.title, max(cw-ansi.StringWidth(when)-1, 1))
+	name := fit(c.title, max(cw-ansi.StringWidth(when)-ansi.StringWidth(tick)-1, 1))
 	switch {
 	case c.unread > 0 && !c.muted:
 		name = inkB(cFg, name)
 	case c.muted:
 		name = ink(cMuted, name)
 	}
-	r1 := bar + " " + name + " " + ink(cMuted, when)
+	r1 := bar + " " + name + " " + tick + ink(cMuted, when)
 	r2 := bar + " " + ink(cMuted, fit(c.last, max(cw-ansi.StringWidth(badge), 1))) + badge
+	if c.typing != "" {
+		r2 = bar + " " + ink(cAccent, fit(c.typing, max(cw-ansi.StringWidth(badge), 1))) + badge
+	}
 	return []string{paint(r1, w, cFg, bg), paint(r2, w, cFg, bg), paint("", w, cFg, cPanel)}
 }
 
@@ -472,11 +482,16 @@ func (m model) listHead(w int) []string {
 	}
 }
 
-// chatSubtitle is the muted line under the chat name: what kind of chat it is.
-func chatSubtitle(c *chat) string {
+// chatSubtitle is the muted line under the chat name: what kind of chat it is; for a person, their online status.
+func chatSubtitle(c *chat, now time.Time) string {
 	var p []string
 	switch {
-	case c.key[0] == 'u': // the name is already the title: only the username adds anything
+	case c.key[0] == 'u': // the name is already the title: the status and the username add something
+		if c.bot {
+			p = append(p, "bot")
+		} else if s := presenceText(c.seen, now); s != "" {
+			p = append(p, s)
+		}
 		if c.username != "" {
 			p = append(p, "@"+clean(c.username))
 		}
@@ -580,6 +595,13 @@ func (m model) hints(w int) string {
 	case m.reply != nil || m.edit != nil:
 		hs = []hint{{"enter", "gửi"}, {"alt+enter", "xuống dòng"}, {"esc", "huỷ"}}
 	}
+	if p := m.running(); p != nil {
+		what := "huỷ gửi tệp"
+		if p.down {
+			what = "huỷ tải"
+		}
+		hs = append([]hint{{"ctrl+x", what}}, hs...)
+	}
 	var parts []string
 	for _, h := range hs {
 		switch {
@@ -613,7 +635,11 @@ func (m model) View() string {
 	if m.rail {
 		left = m.railView(bodyH)
 	} else {
-		left = append(m.listHead(side), paint("", side, cFg, cPanel))
+		tabs := ""
+		if len(m.folders) > 0 {
+			tabs, _ = m.folderTabs(side)
+		}
+		left = append(m.listHead(side), paint(tabs, side, cFg, cPanel))
 		vis := m.visible()
 		for p := m.top; p < len(vis) && len(left) < bodyH; p++ {
 			c := m.chatAt(vis[p])
@@ -621,6 +647,10 @@ func (m model) View() string {
 			if m.filtering() {
 				sel = p == m.sel
 			}
+			if c.key == m.selfKey { // Saved Messages: nobody else reads them
+				c.lastOut = false
+			}
+			c.typing = m.typingText(c.key, -1, now)
 			left = append(left, chatItem(c, sel, side, now)...)
 		}
 		for len(left) < bodyH {
@@ -634,7 +664,13 @@ func (m model) View() string {
 	end := m.toastBox(rw / 2)
 	if c != nil {
 		head = inkB(cFg, cut(c.title, max(rw/2, 10)))
-		if sub := chatSubtitle(c); sub != "" {
+		tp := -1
+		if hasTopics(c) {
+			tp = c.topic
+		}
+		if ty := m.typingText(c.key, tp, now); ty != "" {
+			head += ink(cAccent, "  ·  "+ty)
+		} else if sub := chatSubtitle(c, now); sub != "" {
 			head += ink(cMuted, "  ·  "+sub)
 		}
 		if end == "" {

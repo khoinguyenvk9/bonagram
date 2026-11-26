@@ -168,7 +168,11 @@ func TestVideoPlaysInTerminalWithMpv(t *testing.T) {
 	defer func() { mpvPath = old }()
 	a := fileModel(t, docMsg(7, "v.mp4", "video/mp4", 5, &tg.DocumentAttributeVideo{Duration: 3}))
 	cmd := a.send(tea.KeyMsg{Type: tea.KeyEnter})
-	if _, ok := cmd().(playMsg); !ok {
+	msg := cmd()
+	if b, ok := msg.(tea.BatchMsg); ok { // the download and its progress ticks
+		msg = b[0]()
+	}
+	if _, ok := msg.(playMsg); !ok {
 		t.Fatal("a video should be handed to mpv")
 	}
 	oldK, oldR := kitty, rawProto

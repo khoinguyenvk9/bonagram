@@ -60,6 +60,7 @@ var helpDoc = []helpSection{
 		{"Ctrl+N / Ctrl+P", "Chat kế tiếp / chat trước"},
 		{"Ctrl+G", "Nhảy tới chat có tin chưa đọc"},
 		{"Ctrl+T / Ctrl+Y", "Topic kế tiếp / trước (nhóm có topic)"},
+		{"Ctrl+L / click tab", "Đổi thư mục chat (Cá nhân, Công việc…)"},
 		{"Ctrl+F", "Tìm trong nội dung tin của chat này (Enter tìm/mở)"},
 	}},
 	{"Gõ và gửi", [][2]string{
@@ -72,6 +73,7 @@ var helpDoc = []helpSection{
 		{"Esc", "Huỷ trả lời hoặc sửa tin"},
 		{"@ (trong nhóm)", "Gợi ý thành viên: ↑↓ chọn, Tab/Enter chèn, Esc đóng"},
 		{"Ctrl+O / nút Tệp", "Mở hộp chọn tệp (chọn được nhiều tệp)"},
+		{"Ctrl+X", "Huỷ gửi / tải tệp đang chạy"},
 		{"/file đường-dẫn…", "Đính kèm một hoặc nhiều tệp (kéo thả vào terminal)"},
 		{"/position vĩ,kinh", "Gửi vị trí (dán link Google Maps cũng được)"},
 		{"Chú thích", "Gõ chú thích rồi Enter để gửi; Esc bỏ đính kèm"},
